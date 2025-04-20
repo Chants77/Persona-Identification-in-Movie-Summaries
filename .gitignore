@@ -1,12 +1,11 @@
 experiments/*
-experiments/data/*
 *~
 *#
-#*
 .#*
 logs/*
 gpt.py
 data/*
-try.py
 .DS_Store
 .idea/*
+try.py
+__pycache__/*

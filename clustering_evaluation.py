@@ -12,7 +12,7 @@ import time
 import random
 import torch
 import csv
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import RobustScaler, PolynomialFeatures, normalize
 from sklearn.decomposition import PCA
 
 def debug_print(msg):
@@ -58,16 +58,14 @@ def variation_of_info(gold_clusters, pred_clusters):
     return h_gold + h_pred - 2 * mi
 
 
-def permutation_test(gold, pred, metric_func, n_perm=1000):
-    true_score = metric_func(gold, pred)
-
-    def _permute(_):
-        return metric_func(gold, np.random.permutation(pred))
-
-    perm_scores = Parallel(n_jobs=4)(delayed(_permute)(i) for i in range(n_perm))
-
-    p_value = (np.sum(np.array(perm_scores) <= true_score) + 1) / (n_perm + 1)
-    return true_score, p_value
+def permutation_test(gold, pred, metric, n_perm=1000, higher_is_better=True):
+    true = metric(gold, pred)
+    if higher_is_better:
+        comp = lambda x: x >= true
+    else:
+        comp = lambda x: x <= true
+    cnt = sum(comp(metric(gold, np.random.permutation(pred))) for _ in range(n_perm))
+    return true, (cnt + 1) / (n_perm + 1)
 
 
 def cluster_purity(gold_clusters, pred_clusters):
@@ -89,32 +87,70 @@ def analyze_embeddings(embeddings):
              f"median={np.median(var_per_feature):.4f}, max={np.max(var_per_feature):.4f}")
 
 
-def preprocess_embeddings(embeddings):
-    scaler = RobustScaler(unit_variance=True)
-    scaled = scaler.fit_transform(embeddings)
+def baseline_purity(gold, pred, n=1000):
+    counts = np.bincount(pred)
+    base = []
+    for _ in range(n):
+        s = np.concatenate([np.repeat(i,c) for i,c in enumerate(counts)])
+        np.random.shuffle(s)
+        base.append(cluster_purity(gold, s))
+    return np.mean(base)
 
-    pca = PCA(n_components=0.95, random_state=42)
-    return pca.fit_transform(scaled)
+def preprocess_embeddings(embeddings):
+    # pre
+    # scaler = RobustScaler(unit_variance=True)
+    # scaled = scaler.fit_transform(embeddings)
+    #
+    # pca = PCA(n_components=0.95, random_state=42)
+    # return pca.fit_transform(scaled)
+
+    # pre2
+    # vecs = normalize(embeddings, norm="l2")
+    # vecs = PCA(n_components=0.95, whiten=True,
+    #            random_state=42).fit_transform(vecs)
+
+    # pre3
+    # vecs = normalize(embeddings, norm="l2")
+    # vecs = PCA(n_components=0.95, whiten=True,
+    #            random_state=42).fit_transform(vecs)
+    # vecs = normalize(vecs, norm="l2", axis=1)
+
+    # pre4
+    vecs = normalize(embeddings, norm="l2")
+    vecs = PCA(n_components=0.95, whiten=False,
+               random_state=42).fit_transform(vecs)
+    vecs = normalize(vecs, norm="l2", axis=1)
+    return vecs
+
 
 def evaluate_clustering(embeddings, gold_labels, n_jobs=-1):
     results = {}
 
-    scaler = StandardScaler()
-    norm_embeddings = scaler.fit_transform(embeddings)
-    analyze_embeddings(norm_embeddings)
+    # scaler = StandardScaler()
+    # norm_embeddings = scaler.fit_transform(embeddings)
+    analyze_embeddings(embeddings)
 
     for P in [25, 50, 100]:
         logprint(f"Evaluating with P={P} personas...")
-        kmeans = KMeans(n_clusters=P, n_init=10, random_state=42,
-                       init='k-means++', algorithm='elkan')
-        pred_labels = kmeans.fit_predict(norm_embeddings)
+        kmeans = KMeans(n_clusters=P, n_init=50, random_state=42,
+                       algorithm='elkan', max_iter=500)
+        pred_labels = kmeans.fit_predict(embeddings)
+        # kmeans = SphericalKMeans(
+        #     n_clusters=P,
+        #     n_init=50,
+        #     max_iter=500,
+        #     random_state=42)
+        # pred_labels = kmeans.fit_predict(embeddings)
 
         vi_score = variation_of_info(gold_labels, pred_labels)
 
         purity = cluster_purity(gold_labels, pred_labels)
 
-        _, vi_p_value = permutation_test(gold_labels, pred_labels, variation_of_info)
-        _, purity_p_value = permutation_test(gold_labels, pred_labels, cluster_purity)
+        # base = baseline_purity(gold_labels, pred_labels)
+        # logprint(f"Purity={purity * 100:4.1f}%  (↑{(purity - base) * 100:4.1f} pp)")
+
+        _, vi_p_value = permutation_test(gold_labels, pred_labels, variation_of_info, higher_is_better=False)
+        _, purity_p_value = permutation_test(gold_labels, pred_labels, cluster_purity, higher_is_better=True)
 
         results[P] = {
             'VI': (vi_score, vi_p_value),
@@ -132,7 +168,7 @@ torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 
 overall_start_time = time.time()
-file_name = "results/llama_embeddings_weight1_20250419.jsonl"
+file_name = "results/llama_embeddings_pooling_20250419.jsonl"
 embeddings, gold_labels, _ = load_embeddings(file_name)
 debug_print(f"Loaded {len(embeddings)} embeddings and {len(gold_labels)} labels from {file_name}.")
 
@@ -145,19 +181,19 @@ logprint("Evaluating clustering...")
 logprint(f"Start time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time))}")
 start_time = time.time()
 emb = embeddings
-# emb = preprocess_embeddings(embeddings)
+emb = preprocess_embeddings(embeddings)
 results = evaluate_clustering(emb, gold_indices, n_jobs=4)
 logprint(f"Evaluation completed in {time.time() - start_time:.2f} seconds.")
 
-print("\nVariation of Information Results:")
+logprint("\nVariation of Information Results:")
 for P in [25, 50, 100]:
     vi_score, p_value = results[P]['VI']
-    print(f"P={P}: VI={vi_score:.2f} bits (p<{p_value:.3f})")
+    logprint(f"P={P}: VI={vi_score:.2f} bits (p<{p_value:.3f})")
 
-print("\nPurity Results:")
+logprint("\nPurity Results:")
 for P in [25, 50, 100]:
     purity, p_value = results[P]['Purity']
-    print(f"P={P}: Purity={purity * 100:.1f}% (p<{p_value:.3f})")
+    logprint(f"P={P}: Purity={purity * 100:.1f}% (p<{p_value:.3f})")
 
 
 

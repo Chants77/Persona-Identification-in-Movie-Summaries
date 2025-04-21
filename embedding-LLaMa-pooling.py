@@ -166,10 +166,15 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             logprint(f"No summary found for key: {summary_key}")
             continue
 
-        prompt_text = f"""[INST] Analyze the character {char_name} from {movie_title}.
+        # prompt_text = f"""[INST] Analyze the character {char_name} from {movie_title}.
+        #                 Movie summary:
+        #                 {summary}
+        #                 Generate a compact semantic representation of this character's persona. [/INST]"""
+
+        prompt_text = f"""Analyze the character {char_name} from {movie_title}.
                         Movie summary:
                         {summary}
-                        Generate a compact semantic representation of this character's persona. [/INST]"""
+                        """
 
         # Tokenize
         inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True).to(embed_model.device)

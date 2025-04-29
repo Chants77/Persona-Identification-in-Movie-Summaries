@@ -9,3 +9,4 @@ data/*
 .idea/*
 try.py
 __pycache__/*
+*.png

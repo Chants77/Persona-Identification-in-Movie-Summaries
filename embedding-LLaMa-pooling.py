@@ -124,18 +124,18 @@ tokenizer = AutoTokenizer.from_pretrained(
 )
 
 debug_print("Loading generation model...")
-# 量化配置
+
 load_kwargs = {
     "torch_dtype": torch.bfloat16,
     "device_map": "auto"
 }
+
 if QUANTIZATION:
     load_kwargs.update({
         "load_in_4bit": True,
         "bnb_4bit_compute_dtype": torch.bfloat16
     })
 
-# 双模型加载
 gen_model = LlamaForCausalLM.from_pretrained(model_id, **load_kwargs)
 embed_model = LlamaModel.from_pretrained(model_id, **load_kwargs)
 
@@ -171,9 +171,10 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         #                 {summary}
         #                 Generate a compact semantic representation of this character's persona. [/INST]"""
 
-        prompt_text = f"""Analyze the character {char_name} from {movie_title}.
+        prompt_text = f"""The movie {movie_title} is about the character {char_name}.
                         Movie summary:
                         {summary}
+                        In one word, describe {char_name}'s role:
                         """
 
         # Tokenize

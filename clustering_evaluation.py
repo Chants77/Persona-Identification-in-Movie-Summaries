@@ -23,7 +23,7 @@ def debug_print(msg):
         print(f"[DEBUG] {msg}")
 
 def logprint(log):
-    log_file = os.path.join("logs/clustering-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
+    log_file = os.path.join("logs/clustering-{}-{}.logs".format(results_file, time.strftime('%Y%m%d', time.gmtime())))
     with open(log_file, "a", encoding="utf-8") as fout:
         fout.write(log + "\n")
     print(log)
@@ -76,7 +76,6 @@ def cluster_purity(gold_clusters, pred_clusters):
 
 def analyze_embeddings(embeddings):
     from sklearn.neighbors import NearestNeighbors
-
     nbrs = NearestNeighbors(n_neighbors=2).fit(embeddings)
     distances, _ = nbrs.kneighbors(embeddings)
     avg_min_dist = np.mean(distances[:, 1])
@@ -168,7 +167,8 @@ torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 
 overall_start_time = time.time()
-file_name = "results/llama_embeddings_pooling_20250419.jsonl"
+results_file = "llama_1word_input_20250426"
+file_name = "results/" + results_file + ".jsonl"
 embeddings, gold_labels, _ = load_embeddings(file_name)
 debug_print(f"Loaded {len(embeddings)} embeddings and {len(gold_labels)} labels from {file_name}.")
 
@@ -180,7 +180,7 @@ logprint(f"Number of unique labels: {len(unique_labels)}")
 logprint("Evaluating clustering...")
 logprint(f"Start time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time))}")
 start_time = time.time()
-emb = embeddings
+# emb = embeddings
 emb = preprocess_embeddings(embeddings)
 results = evaluate_clustering(emb, gold_indices, n_jobs=4)
 logprint(f"Evaluation completed in {time.time() - start_time:.2f} seconds.")

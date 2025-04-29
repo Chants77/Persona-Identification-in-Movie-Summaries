@@ -230,7 +230,7 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         input_ids = inputs["input_ids"].to(model_for_hidden.device)
         attention_mask = inputs["attention_mask"].to(model_for_hidden.device)
 
-        device = model_for_hidden.device  # or torch.device("cuda") if you want
+        device = model_for_hidden.device
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
 
@@ -238,7 +238,7 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             outputs = model_for_hidden(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                output_hidden_states=True  # or rely on config
+                output_hidden_states=True
             )
 
         all_hidden = outputs.hidden_states  # (layer0, layer1, ..., layerN)

@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoTokenizer, LlamaModel, LlamaForCausalLM, AutoModelForCausalLM, pipeline, LlamaTokenizer
+from transformers import AutoTokenizer, LlamaModel, LlamaForCausalLM, AutoModelForCausalLM, pipeline
 import csv
 import json
 import random
@@ -10,7 +10,6 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import argparse
 from tqdm import tqdm
 from collections import defaultdict
-import torch.nn.functional as F
 
 def debug_print(msg):
     if DEBUG_MODE:
@@ -28,7 +27,6 @@ def logprint(log):
 
 DEBUG_MODE = True  # debug flag
 SEED = 42
-QUANTIZATION = False
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -44,7 +42,7 @@ if torch.cuda.is_available():
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "data/tvtropes.clusters.txt"
+tvtropes_file = "../data/tvtropes.clusters.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -75,7 +73,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
 all_categories = sorted(all_categories)
 logprint(f"Loaded {len(all_categories)} categories")
 
-char_metadata_file = "data/character.metadata.tsv"
+char_metadata_file = "../data/character.metadata.tsv"
 id_to_char_data = {}
 map_id_to_char_data = {}
 
@@ -90,7 +88,7 @@ with open(char_metadata_file, 'r', encoding='utf-8') as f:
         id_to_char_data[freebase_char_id] = (w_movie_id, f_movie_id, character_name)
         map_id_to_char_data[map_id] = (w_movie_id, f_movie_id, character_name)
 
-plot_summaries_file = "data/plot_summaries.txt"
+plot_summaries_file = "../data/plot_summaries.txt"
 movie_summaries = {}
 summary_key_version = 0
 
@@ -115,29 +113,84 @@ for category_name, char_list in category_to_characters.items():
         all_character_entries.append((category_name, char_info))
 
 model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+pseudo_cls_token = "<CHAR_CLS>"
 
 debug_print("Loading raw tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained(
-    model_id,
-    legacy=False,
-    use_fast=True
-)
+hf_tokenizer = AutoTokenizer.from_pretrained(model_id, legacy=False, use_fast=True)
+debug_print(f"Tokenizer class: {type(hf_tokenizer).__name__}")
+debug_print(f"Original vocab size: {hf_tokenizer.vocab_size}")
+debug_print(f"Original special tokens: {len(hf_tokenizer.special_tokens_map)}")
+
+debug_print(f"Adding special token: {pseudo_cls_token}")
+hf_tokenizer.add_tokens([pseudo_cls_token], special_tokens=True)
+debug_print(f"Updated vocab size: {hf_tokenizer.vocab_size}")
+debug_print(f"New special tokens: {hf_tokenizer.special_tokens_map}")
+
+pseudo_cls_id = hf_tokenizer.convert_tokens_to_ids(pseudo_cls_token)
+debug_print(f"<CHAR_CLS> Token ID: {pseudo_cls_id} (0x{pseudo_cls_id:x})")
+# assert pseudo_cls_id < len(hf_tokenizer), "Token ID out of range!"
 
 debug_print("Loading generation model...")
+base_model = LlamaForCausalLM.from_pretrained(
+    model_id,
+    torch_dtype=torch.bfloat16,
+    device_map="auto"
+)
+base_model.resize_token_embeddings(len(hf_tokenizer))
+base_model.config.vocab_size = len(hf_tokenizer)
+debug_print(f"Generation model vocab size: {base_model.config.vocab_size}")
+debug_print(f"Generation model device: {base_model.device}")
 
-load_kwargs = {
-    "torch_dtype": torch.bfloat16,
-    "device_map": "auto"
-}
 
-if QUANTIZATION:
-    load_kwargs.update({
-        "load_in_4bit": True,
-        "bnb_4bit_compute_dtype": torch.bfloat16
-    })
+llama_pipeline = pipeline(
+    "text-generation",
+    model=base_model,
+    tokenizer=hf_tokenizer,
+    device_map="auto",
+    temperature=0.0,
+    do_sample=False,
+    top_p=1.0
+)
 
-gen_model = LlamaForCausalLM.from_pretrained(model_id, **load_kwargs)
-embed_model = LlamaModel.from_pretrained(model_id, **load_kwargs)
+logprint("Pipeline loaded.")
+
+hf_config = base_model.config  
+hf_config.output_hidden_states = True
+
+#model_for_hidden = LlamaModel.from_pretrained(
+#    model_id,
+#    config=base_model.config,
+#    torch_dtype=torch.bfloat16,
+#    device_map="auto"
+#)
+
+#model_for_hidden.set_input_embeddings(base_model.get_input_embeddings())
+
+#model_for_hidden.resize_token_embeddings(len(hf_tokenizer))
+#model_for_hidden.config.vocab_size = len(hf_tokenizer)
+
+
+model_for_hidden = base_model.model
+model_for_hidden.eval()
+
+debug_print(f"Hidden model embeddings: {model_for_hidden.embed_tokens.weight.shape}")  # [128257, 4096]
+debug_print(f"Generation model embeddings: {base_model.model.embed_tokens.weight.shape}")  # [128257, 4096]
+assert model_for_hidden.embed_tokens.weight.shape == base_model.model.embed_tokens.weight.shape
+
+
+pseudo_cls_id = hf_tokenizer.convert_tokens_to_ids(pseudo_cls_token)
+#assert pseudo_cls_id < hf_tokenizer.vocab_size, \
+#    f"Token ID {pseudo_cls_id} exceeds {hf_tokenizer.vocab_size}"
+
+test_prompt = f"{pseudo_cls_token} Test prompt"
+test_inputs = hf_tokenizer(test_prompt, return_tensors="pt").to("cuda")
+try:
+    test_output = model_for_hidden(**test_inputs)
+    logprint("vocabulary is valid")
+    debug_print(f"special token hidden states: {test_output.last_hidden_state[0, -1, :10]}")
+except RuntimeError as e:
+    logprint(f"{str(e)}")
+    raise
 
 embedding_output_file = os.path.join("results/llama_character_embeddings_{}.jsonl".format(time.strftime('%Y%m%d', time.gmtime())))
 logprint(f"Storing embeddings in {embedding_output_file}")
@@ -166,55 +219,58 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             logprint(f"No summary found for key: {summary_key}")
             continue
 
-        # prompt_text = f"""[INST] Analyze the character {char_name} from {movie_title}.
-        #                 Movie summary:
-        #                 {summary}
-        #                 Generate a compact semantic representation of this character's persona. [/INST]"""
-
-        prompt_text = f"""The movie {movie_title} is about the character {char_name}.
-                        Movie summary:
-                        {summary}
-                        In one word, describe {char_name}'s role:
-                        """
+        prompt_text = (
+            f"{pseudo_cls_token} Please focus on the character {char_name} from the movie {movie_title}.\n\n"
+            "Below is the movie summary:\n"
+            f"{summary}\n"
+        )
 
         # Tokenize
-        inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True).to(embed_model.device)
-        if inputs.input_ids.shape[1] == tokenizer.model_max_length:
-            logprint(f"warning: {char_name}'s input is truncated.")
+        inputs = hf_tokenizer(prompt_text, return_tensors="pt")
+        input_ids = inputs["input_ids"].to(model_for_hidden.device)
+        attention_mask = inputs["attention_mask"].to(model_for_hidden.device)
+
+        device = model_for_hidden.device
+        input_ids = input_ids.to(device)
+        attention_mask = attention_mask.to(device)
 
         with torch.no_grad():
-            outputs = embed_model(**inputs, output_hidden_states=True)
-        # mean pooling
+            outputs = model_for_hidden(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=True
+            )
 
-        def mean_pooling(hidden_states, attention_mask):
-            input_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_states.size()).float()
-            sum_embeddings = torch.sum(hidden_states * input_mask_expanded, 1)
-            sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-            return sum_embeddings / sum_mask
+        all_hidden = outputs.hidden_states  # (layer0, layer1, ..., layerN)
+        final_layer = all_hidden[-1]  # [batch_size, seq_len, hidden_dim]
 
-        pooled = mean_pooling(outputs.last_hidden_state, inputs.attention_mask)
-        embedding = F.normalize(pooled, p=2, dim=1).squeeze().cpu().numpy().tolist()
+        final_layer = final_layer[0]  # [seq_len, hidden_dim]
 
-        gen_output = gen_model.generate(
-            inputs.input_ids.to(gen_model.device),
-            max_new_tokens=100,
-            temperature=0.0,
-            do_sample=False
-        )
-        gen_text = tokenizer.decode(gen_output[0], skip_special_tokens=True)
+        pseudo_cls_id = hf_tokenizer.convert_tokens_to_ids(pseudo_cls_token)
+        cls_positions = (input_ids[0] == pseudo_cls_id).nonzero(as_tuple=True)[0]
+        if len(cls_positions) == 0:
+            character_embedding = final_layer[0]
+        else:
+            idx = cls_positions[0].item()
+            character_embedding = final_layer[idx]
+
+        character_embedding = character_embedding.cpu()
+        embedding_np = character_embedding.float().numpy().tolist()
+
+        gen_output = llama_pipeline(prompt_text, max_new_tokens=100)
+        gen_text = gen_output[0]["generated_text"]
 
         record = {
             "category": category_name,
             "character_id": f_map_id,
             "movie_title": movie_title,
             "character_name": char_name,
-            "embedding": embedding,
+            "embedding": embedding_np,
             "generated_text_sample": gen_text[:200]
         }
         emb_fout.write(json.dumps(record) + "\n")
         emb_fout.flush()
 
-        logprint(f"Processed character {char_name} from {movie_title} - embedding size {len(embedding)}")
+        logprint(f"Processed character {char_name} from {movie_title} - embedding size {len(embedding_np)}")
 
 logprint("Finished embeddings collection.")
-logprint(f"time consumption: {time.time()-overall_start_time:.2f}s")

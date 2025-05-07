@@ -87,7 +87,7 @@ def visualize_embeddings(embeddings, labels):
     plt.close()
 
 
-embeddings, gold_labels, _ = load_embeddings("results/llama_embeddings_weight1_20250419.jsonl")
+embeddings, gold_labels, _ = load_embeddings("../results/llama_embeddings_weight1_20250419.jsonl")
 # emb = preprocess_embeddings(embeddings)
 emb = embeddings
 analyze_embeddings(emb)

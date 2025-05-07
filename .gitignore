@@ -3,10 +3,11 @@ experiments/*
 *#
 .#*
 logs/*
-gpt.py
+QA_pipeline/gpt.py
 data/*
 .DS_Store
 .idea/*
 try.py
 __pycache__/*
 *.png
+*.json

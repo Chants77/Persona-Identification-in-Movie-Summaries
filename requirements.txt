@@ -38,7 +38,7 @@ more-itertools==10.5.0
 mpmath==1.3.0
 murmurhash==1.0.11
 networkx==3.4.2
-numpy
+numpy~=1.26.4
 openai==1.57.4
 packaging==24.2
 pandas==2.2.3
@@ -58,8 +58,8 @@ regex==2024.11.6
 requests==2.32.3
 rich==13.9.4
 safetensors==0.4.5
-scikit-learn
-scipy
+scikit-learn~=1.5.2
+scipy~=1.14.1
 sentencepiece==0.2.0
 shellingham==1.5.4
 six==1.17.0
@@ -84,3 +84,16 @@ urllib3==2.2.3
 wasabi==1.1.3
 weasel==0.4.1
 wrapt==1.17.0
+
+pip~=24.2
+zlib~=1.2.13
+wheel~=0.44.0
+openssl~=3.0.16
+pillow~=11.1.0
+scons~=4.8.1
+readline~=8.2
+setuptools~=75.1.0
+pyparsing~=3.2.0
+steamroller~=3.0.4
+seaborn~=0.13.2
+joblib~=1.4.2

@@ -7,10 +7,10 @@ import coreferee
 
 
 def main():
-    tvtropes_file = './data/tvtropes.clusters.txt'
-    char_metadata_file = './data/character.metadata.tsv'
-    plot_summaries_file = './data/plot_summaries.txt'
-    output_file = './data/shortened_summaries.txt'
+    tvtropes_file = '../data/tvtropes.clusters.txt'
+    char_metadata_file = '../data/character.metadata.tsv'
+    plot_summaries_file = '../data/plot_summaries.txt'
+    output_file = '../data/shortened_summaries.txt'
 
     tvtropes_data = []
     with open(tvtropes_file, "r", encoding="utf-8") as fin:

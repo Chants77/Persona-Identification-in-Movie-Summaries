@@ -1,5 +1,6 @@
 import torch
-from transformers import AutoTokenizer, LlamaModel, LlamaForCausalLM, AutoModelForCausalLM, pipeline, LlamaTokenizer
+from transformers import BigBirdModel, BigBirdTokenizer
+from typing import List
 import csv
 import json
 import random
@@ -20,7 +21,7 @@ def debug_print(msg):
         print(f"[DEBUG] {msg}")
 
 def logprint(log):
-    log_file = os.path.join("logs/llama-generate-embedding-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
+    log_file = os.path.join("logs/bigbird-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
     with open(log_file, "a", encoding="utf-8") as fout:
         fout.write(log + "\n")
     print(log)
@@ -29,7 +30,6 @@ def logprint(log):
 DEBUG_MODE = True  # debug flag
 SEED = 42
 QUANTIZATION = False
-LAYER = -2  # penultimate layer
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -45,7 +45,7 @@ if torch.cuda.is_available():
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "data/tvtropes.clusters.txt"
+tvtropes_file = "../data/tvtropes.clusters.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -76,7 +76,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
 all_categories = sorted(all_categories)
 logprint(f"Loaded {len(all_categories)} categories")
 
-char_metadata_file = "data/character.metadata.tsv"
+char_metadata_file = "../data/character.metadata.tsv"
 id_to_char_data = {}
 map_id_to_char_data = {}
 
@@ -91,7 +91,7 @@ with open(char_metadata_file, 'r', encoding='utf-8') as f:
         id_to_char_data[freebase_char_id] = (w_movie_id, f_movie_id, character_name)
         map_id_to_char_data[map_id] = (w_movie_id, f_movie_id, character_name)
 
-plot_summaries_file = "data/plot_summaries.txt"
+plot_summaries_file = "../data/plot_summaries.txt"
 movie_summaries = {}
 summary_key_version = 0
 
@@ -115,32 +115,24 @@ for category_name, char_list in category_to_characters.items():
     for char_info in char_list:
         all_character_entries.append((category_name, char_info))
 
-model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+MODEL_NAME = 'google/bigbird-roberta-base'
+USE_CLS = True
+MAX_LENGTH = 4096
+ATTENTION_TYPE = "block_sparse"
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-debug_print("Loading raw tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained(
-    model_id,
-    legacy=False,
-    use_fast=True
+debug_print("Loading LongFormer...")
+
+tokenizer = BigBirdTokenizer.from_pretrained(MODEL_NAME)
+model = BigBirdModel.from_pretrained(
+    MODEL_NAME,
+    attention_type=ATTENTION_TYPE,
+    output_hidden_states=True
 )
+model = model.to(DEVICE)
+model.eval()
 
-debug_print("Loading generation model...")
-
-load_kwargs = {
-    "torch_dtype": torch.bfloat16,
-    "device_map": "auto"
-}
-if QUANTIZATION:
-    load_kwargs.update({
-        "load_in_4bit": True,
-        "bnb_4bit_compute_dtype": torch.bfloat16
-    })
-
-
-gen_model = LlamaForCausalLM.from_pretrained(model_id, **load_kwargs)
-# embed_model = LlamaModel.from_pretrained(model_id, **load_kwargs)
-
-embedding_output_file = os.path.join("results/llama_3words_{}.jsonl".format(time.strftime('%Y%m%d', time.gmtime())))
+embedding_output_file = os.path.join("results/bigbird_embeddings_{}.jsonl".format(time.strftime('%Y%m%d', time.gmtime())))
 logprint(f"Storing embeddings in {embedding_output_file}")
 
 
@@ -172,75 +164,40 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         #                 {summary}
         #                 Generate a compact semantic representation of this character's persona. [/INST]"""
 
-        prompt_text = f"""The movie {movie_title} is about the character {char_name}.
+        prompt_text = f"""Summarize the character {char_name} from {movie_title}.
                         Movie summary:
                         {summary}
-                        In 3 words, describe {char_name}'s role:
                         """
 
         # Tokenize
-        inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True).to(gen_model.device)
-        if inputs.input_ids.shape[1] == tokenizer.model_max_length:
-            logprint(f"warning: {char_name}'s input is truncated.")
+        inputs = tokenizer(
+            prompt_text,
+            max_length=MAX_LENGTH,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
+        ).to(DEVICE)
 
-        # with torch.no_grad():
-        #     outputs = embed_model(**inputs, output_hidden_states=True)
-        # mean pooling
+        # forward
+        with torch.no_grad():
+            outputs = model(**inputs)
 
-        def mean_pooling(hidden_states, attention_mask):
-            input_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_states.size()).float()
-            sum_embeddings = torch.sum(hidden_states * input_mask_expanded, 1)
-            sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-            return sum_embeddings / sum_mask
+        last_hidden_state = outputs.hidden_states[-1]  # [1, seq_len, hidden_size]
 
-        # pooled = mean_pooling(outputs.last_hidden_state, inputs.attention_mask)
-        # embedding = F.normalize(pooled, p=2, dim=1).squeeze().cpu().numpy().tolist()
+        # calculate embedding
+        if USE_CLS:
+            embedding = last_hidden_state[0, 0, :]  # [CLS] embedding
+        else:
+            embedding = last_hidden_state.mean(dim=1)[0]  # mean pooling
 
-        gen_output = gen_model.generate(
-            inputs.input_ids.to(gen_model.device),
-            max_new_tokens=6,
-            temperature=0.0,
-            do_sample=False,
-            return_dict_in_generate=True,
-            output_hidden_states=True
-        )
-        # gen_text = tokenizer.decode(gen_output[0], skip_special_tokens=True)
-
-        steps = len(gen_output.hidden_states)  # = number of new tokens
-        vecs = []
-        for s in range(steps):
-            h_step_layer = gen_output.hidden_states[s][LAYER]  # tensor (1,1,dim)
-            vecs.append(h_step_layer[0, -1, :].squeeze())  # (dim,)
-            debug_print(f"{h_step_layer[0, -1, :].shape}")
-        vec = torch.stack(vecs).mean(0)  # (dim,)
-        embedding = F.normalize(vec, p=2, dim=0).squeeze().cpu().numpy().tolist()
-
-        # hiddens = gen_output.hidden_states[-2]  # penultimate layer
-        # indices of generated tokens: last n positions
-        new_tok_start = inputs.input_ids.shape[1]
-        # debug_print(f"new_tok_start: {new_tok_start}, hiddens.shape: {hiddens.shape}, inputs.input_ids.shape: {inputs.input_ids.shape}")
-        # new_tok_end = hiddens.shape[1]  # inclusive
-        # debug_print(f"new_tok_end: {new_tok_end}")
-        # new_vecs = hiddens[0, new_tok_start:new_tok_end, :]  # (n, dim)
-
-        # 3) keep only first 3 real words (strip punctuation)
-        gen_text = tokenizer.decode(gen_output.sequences[0][new_tok_start:])
-        debug_print(f"Generated text: {gen_text}")
-        # words = [m.group() for m in RE_WORD.finditer(gen_text)]
-        # keep_n = min(3, len(words))
-        # kept_vecs = new_vecs[:keep_n]  # (≤3, dim)
-
-        # vec = new_vecs.mean(0)
-        # embedding = torch.nn.functional.normalize(vec.float(), p=2, dim=0)
-        debug_print(f"Embedding shape: {embedding.shape}")
+        embedding = embedding.cpu().numpy().tolist()
 
         record = {
             "category": category_name,
             "character_id": f_map_id,
             "movie_title": movie_title,
             "character_name": char_name,
-            "embedding": embedding,
-            "generated_text_sample": gen_text[:]
+            "embedding": embedding
         }
         emb_fout.write(json.dumps(record) + "\n")
         emb_fout.flush()

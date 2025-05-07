@@ -2,6 +2,8 @@ import csv
 import json
 from transformers import pipeline
 import torch
+import random
+import numpy as np
 import os
 import time
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -16,31 +18,26 @@ def logprint(log):
         fout.write(log + "\n")
     print(log)
 
-def parse_response_format(generated_text, all_categories):
-    lines = generated_text.splitlines()
-    category_found = None
-    reason_found = None
+def parse_response(response_text):
+    try:
+        data = json.loads(response_text)
+        return data
+    except json.JSONDecodeError:
+        print("Failed to parse JSON response.")
+        return None
 
-    for line in lines:
-        line = line.strip()
-        if line.lower().startswith("category:"):
-            category_found = line[len("category:"):].strip()
-        elif line.lower().startswith("reason:"):
-            reason_found = line[len("reason:"):].strip()
 
-    if not category_found or not reason_found:
-        return None, None
+SEED = 42
 
-    if category_found not in all_categories:
-        return None, None
-
-    return category_found, reason_found
-
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
 
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "data/tvtropes.clusters.txt"
+tvtropes_file = "../data/tvtropes.clusters.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -71,7 +68,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
 all_categories = sorted(all_categories)
 logprint(f"Loaded {len(all_categories)} categories")
 
-char_metadata_file = "data/character.metadata.tsv"
+char_metadata_file = "../data/character.metadata.tsv"
 id_to_char_data = {}
 map_id_to_char_data = {}
 
@@ -86,7 +83,7 @@ with open(char_metadata_file, 'r', encoding='utf-8') as f:
         id_to_char_data[freebase_char_id] = (w_movie_id, f_movie_id, character_name)
         map_id_to_char_data[map_id] = (w_movie_id, f_movie_id, character_name)
 
-plot_summaries_file = "data/plot_summaries.txt"
+plot_summaries_file = "../data/plot_summaries.txt"
 movie_summaries = {}
 summary_key_version = 0
 
@@ -129,19 +126,16 @@ for category_name, char_list in category_to_characters.items():
 
 y_true = []
 y_pred = []
-reasons_list = []
 results_list = []
+invalid_count = 0
 
 # correct = 0
-invalid_count = 0
-max_attempts = 3
 for (category_name, char_info) in tqdm(all_character_entries, desc="All Characters"):
         single_start_time = time.time()
         f_map_id = char_info["id"]
         movie_title = char_info["movie"]
         char_name = char_info["char"]
 
-        # Check if we have the mapping
         if f_map_id not in map_id_to_char_data:
             logprint(f"Character {char_name} from movie {movie_title} not found in metadata (map_id).")
             continue
@@ -160,51 +154,40 @@ for (category_name, char_info) in tqdm(all_character_entries, desc="All Characte
 
         context = categories_context_str + summary
 
-        question = (f"Which category best describes the character {char_name} from the movie {movie_title}? Then explain your reasoning.\n\n"
-                   f"Please respond in exactly this format:\n"
-                   f"category: <the best matching category>\n"
-                   f"reason: <why this category is correct>\n")
+        question = f"Which category best describes the character {char_name} from the movie {movie_title}? Give me only the category."
 
         messages = [
             {"role": "system", "content": "You are a bot that responds to film character classification queries."},
             {"role": "user", "content": question + "\n\n" + context},
         ]
 
-        predicted_cat = None
-        predicted_reason = None
+        max_attempts = 3
+        attempt = 0
+        predicted_cat = "No valid category"
 
-        for attempt in range(1, max_attempts + 1):
+        while predicted_cat == "No valid category" and attempt < max_attempts:
+            attempt += 1
             outputs = llama_pipeline(messages, max_new_tokens=256)
-            generated_piece = outputs[0]["generated_text"][-1]
+            generated_text = outputs[0]["generated_text"][-1]
 
-            full_reply = generated_piece['content']
-            logprint(f"[Attempt {attempt}] raw reply:\n{full_reply}")
+            generated_cat = generated_text['content']
 
-            cat_candidate, reason_candidate = parse_response_format(full_reply, all_categories)
-            if cat_candidate is not None and reason_candidate is not None:
-                predicted_cat = cat_candidate
-                predicted_reason = reason_candidate
-                break
-            else:
-                logprint(f"[Attempt {attempt}] Invalid response. Retrying...")
-                correction_prompt = (
-                    "Your answer didn't match the required format or used an invalid category.\n"
-                    "Please respond with:\n"
-                    "category: <one from the provided list>\n"
-                    "reason: <your explanation>\n"
-                )
-                messages.append({"role": "user", "content": correction_prompt})
+            predicted_cat = "No valid category"
+            for cat in all_categories:
+                if cat in generated_cat:
+                    predicted_cat = cat
+                    break
+
+            if predicted_cat == "No valid category":
+                logprint(f"(Attempt {attempt}) generated_cat: {generated_cat}")
+                messages.append({"role": "user", "content": generated_cat + " is not valid."})
                 logprint(json.dumps(messages, indent=2))
 
-        if predicted_cat is None:
-            predicted_cat = "No valid category"
-            predicted_reason = "No valid reason"
+        if predicted_cat == "No valid category":
             invalid_count += 1
-
 
         y_true.append(category_name)
         y_pred.append(predicted_cat)
-        reasons_list.append(predicted_reason)
         # if category_name == predicted_cat:
         #     correct += 1
         single_end_time = time.time()
@@ -216,11 +199,10 @@ for (category_name, char_info) in tqdm(all_character_entries, desc="All Characte
         # logprint(f"response: {generated_text}")
         # logprint(f"Model Output: {generated_cat}")
         logprint(f"Predicted Category: {predicted_cat}")
-        logprint(f"Reason: {predicted_reason}")
         logprint(f"True Category: {category_name}")
         # logprint('Current correct: ', correct)
         logprint("-------------------------------------------------------")
-        results_list.append([f_map_id, char_name, movie_title, category_name, predicted_cat, predicted_reason])
+        results_list.append([f_map_id, char_name, movie_title, category_name, predicted_cat])
 
 accuracy = accuracy_score(y_true, y_pred)
 precision = precision_score(y_true, y_pred, average="macro", zero_division=0)
@@ -228,7 +210,7 @@ recall = recall_score(y_true, y_pred, average="macro", zero_division=0)
 f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
 
 
-logprint(f"Number of invalid results: {invalid_count}")
+logprint("Invalid count: " + str(invalid_count))
 logprint("Accuracy: " + str(accuracy))
 logprint("Precision: " + str(precision))
 logprint("Recall: " + str(recall))
@@ -251,7 +233,7 @@ for cat in all_categories:
     else:
         logprint(f"  {cat} -> No samples in ground truth")
 
-csv_filename = os.path.join("results/results-reason-{}.csv".format(time.strftime('%Y%m%d', time.gmtime())))
+csv_filename = os.path.join("results/results-{}.csv".format(time.strftime('%Y%m%d', time.gmtime())))
 with open(csv_filename, "w", encoding="utf-8", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["Character", "Movie", "TrueCategory", "PredictedCategory", "Reason"])

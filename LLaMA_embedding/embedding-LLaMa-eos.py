@@ -45,7 +45,7 @@ if torch.cuda.is_available():
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "data/tvtropes.clusters.txt"
+tvtropes_file = "../data/tvtropes.clusters.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -76,7 +76,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
 all_categories = sorted(all_categories)
 logprint(f"Loaded {len(all_categories)} categories")
 
-char_metadata_file = "data/character.metadata.tsv"
+char_metadata_file = "../data/character.metadata.tsv"
 id_to_char_data = {}
 map_id_to_char_data = {}
 
@@ -91,7 +91,7 @@ with open(char_metadata_file, 'r', encoding='utf-8') as f:
         id_to_char_data[freebase_char_id] = (w_movie_id, f_movie_id, character_name)
         map_id_to_char_data[map_id] = (w_movie_id, f_movie_id, character_name)
 
-plot_summaries_file = "data/plot_summaries.txt"
+plot_summaries_file = "../data/plot_summaries.txt"
 movie_summaries = {}
 summary_key_version = 0
 

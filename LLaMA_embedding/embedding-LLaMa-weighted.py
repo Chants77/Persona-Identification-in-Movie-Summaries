@@ -10,6 +10,17 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import argparse
 from tqdm import tqdm
 from collections import defaultdict
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+DEBUG_MODE = True  # debug flag
+SEED = 42
+weight_mode = 2  # 0: no weight, 1: last 3 layers, 2: all layers
+
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
 
 def debug_print(msg):
     if DEBUG_MODE:
@@ -24,14 +35,33 @@ def logprint(log):
         fout.write(log + "\n")
     print(log)
 
+def calculate_dependency_depth(text):
+    doc = nlp(text)
+    depths = []
+    for sent in doc.sents:
+        root = [token for token in sent if token.head == token][0]
+        depths.append(max([token.head.i - token.i for token in sent]))
+    return max(depths) if depths else 0
 
-DEBUG_MODE = True  # debug flag
-SEED = 42
 
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
+def dynamic_layer_fusion(all_hidden, summary, text_length, idx, device):
+    layer_weights = np.zeros(len(all_hidden))
+
+    layer_weights[1:6] = 0.1
+    layer_weights[7:20] = 0.6
+    layer_weights[21:] = 0.3
+
+    if text_length > 500:
+        layer_weights[21:] *= 0.7
+    if calculate_dependency_depth(summary) > 5:
+        layer_weights[1:6] *= 3
+
+    layer_weights /= layer_weights.sum()
+    all_hidden = [h.to(device) for h in all_hidden]
+
+    fused = sum(w * h[0][idx] for w, h in zip(layer_weights, all_hidden))
+    return fused
+
 
 debug_print(f"PyTorch CUDA availability: {torch.cuda.is_available()}")
 debug_print(f"Available GPUs: {torch.cuda.device_count()}")
@@ -42,7 +72,7 @@ if torch.cuda.is_available():
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "data/tvtropes.clusters.txt"
+tvtropes_file = "../data/tvtropes.clusters.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -73,7 +103,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
 all_categories = sorted(all_categories)
 logprint(f"Loaded {len(all_categories)} categories")
 
-char_metadata_file = "data/character.metadata.tsv"
+char_metadata_file = "../data/character.metadata.tsv"
 id_to_char_data = {}
 map_id_to_char_data = {}
 
@@ -88,7 +118,7 @@ with open(char_metadata_file, 'r', encoding='utf-8') as f:
         id_to_char_data[freebase_char_id] = (w_movie_id, f_movie_id, character_name)
         map_id_to_char_data[map_id] = (w_movie_id, f_movie_id, character_name)
 
-plot_summaries_file = "data/plot_summaries.txt"
+plot_summaries_file = "../data/plot_summaries.txt"
 movie_summaries = {}
 summary_key_version = 0
 
@@ -230,7 +260,7 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         input_ids = inputs["input_ids"].to(model_for_hidden.device)
         attention_mask = inputs["attention_mask"].to(model_for_hidden.device)
 
-        device = model_for_hidden.device
+        device = model_for_hidden.device  # or torch.device("cuda") if you want
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
 
@@ -238,7 +268,7 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             outputs = model_for_hidden(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                output_hidden_states=True
+                output_hidden_states=True  # or rely on config
             )
 
         all_hidden = outputs.hidden_states  # (layer0, layer1, ..., layerN)
@@ -248,11 +278,22 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
 
         pseudo_cls_id = hf_tokenizer.convert_tokens_to_ids(pseudo_cls_token)
         cls_positions = (input_ids[0] == pseudo_cls_id).nonzero(as_tuple=True)[0]
-        if len(cls_positions) == 0:
-            character_embedding = final_layer[0]
-        else:
-            idx = cls_positions[0].item()
+        # if len(cls_positions) == 0:
+        #     # character_embedding = final_layer[0]
+        #     character_embedding = final_layer[: 3].mean(dim=0)
+        # else:
+        assert len(cls_positions) > 0, "CLS token not found in input IDs"
+
+        idx = cls_positions[0].item()
+        if weight_mode == 0:
             character_embedding = final_layer[idx]
+        elif weight_mode == 1:
+            layer_weights = [0.3, 0.5, 0.2]
+            selected_layers = [all_hidden[-i] for i in range(3, 0, -1)]
+            weighted_embedding = sum(w * layer[0][idx] for w, layer in zip(layer_weights, selected_layers))
+            character_embedding = weighted_embedding
+        elif weight_mode == 2:
+            character_embedding = dynamic_layer_fusion(all_hidden, summary, len(prompt_text), idx, device)
 
         character_embedding = character_embedding.cpu()
         embedding_np = character_embedding.float().numpy().tolist()

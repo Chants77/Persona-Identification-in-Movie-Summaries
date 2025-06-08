@@ -28,11 +28,11 @@ def logprint(log):
     print(log)
 
 
-DEBUG_MODE = False  # debug flag
+DEBUG_MODE = False
 SEED = 42
 QUANTIZATION = False
-LAYER = -1  # penultimate layer
-MASK_NUM = 1  # number of masks
+LAYER = -1
+MASK_NUM = 1
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -61,12 +61,7 @@ else:
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            logprint(f"Invalid line: {line}")
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -147,10 +142,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         movie_title = char_info["movie"]
         char_name = char_info["char"]
 
-        if f_map_id not in map_id_to_char_data:
-            logprint(f"Character {char_name} from movie {movie_title} not found in metadata (map_id).")
-            continue
-
         w_movie_id, f_movie_id, character_name_in_meta = map_id_to_char_data[f_map_id]
 
         if summary_key_version == 2:
@@ -162,11 +153,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         if not summary.strip():
             logprint(f"No summary found for key: {summary_key}")
             continue
-
-        # prompt_text = f"""[INST] Analyze the character {char_name} from {movie_title}.
-        #                 Movie summary:
-        #                 {summary}
-        #                 Generate a compact semantic representation of this character's persona. [/INST]"""
 
         if MASK_NUM == 1:
             prompt = (f"Analyze {char_name} from {movie_title}."
@@ -182,10 +168,9 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         mask_pos = (enc.input_ids == tokenizer.mask_token_id).nonzero(as_tuple=True)[1]
         debug_print(f"mask_pos: {mask_pos}, input_ids: {enc.input_ids}, mask_token_id: {tokenizer.mask_token_id}")
 
-        # Give mask + char name global attention for Longformer
         glob = torch.zeros_like(enc.input_ids)
         debug_print(f"Global attention mask shape: {glob.shape}")
-        glob[0, 0] = 1  # CLS
+        glob[0, 0] = 1
         glob[0, mask_pos] = 1
         name_ids = tokenizer.encode(char_name, add_special_tokens=False)
         for tid in name_ids:
@@ -194,34 +179,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         out = model(**enc)
         h = out.hidden_states[LAYER][0, mask_pos].mean(0)
         embedding = F.normalize(h.float(), p=2, dim=0).detach().cpu().numpy().tolist()
-
-        # prompt_text = f"""Summarize the character {char_name} from {movie_title}.
-        #                 Movie summary:
-        #                 {summary}
-        #                 """
-        #
-        # # Tokenize
-        # inputs = tokenizer(
-        #     prompt_text,
-        #     max_length=MAX_LENGTH,
-        #     padding='max_length',
-        #     truncation=True,
-        #     return_tensors='pt'
-        # ).to(DEVICE)
-        #
-        # # forward
-        # with torch.no_grad():
-        #     outputs = model(**inputs)
-        #
-        # last_hidden_state = outputs.hidden_states[-1]  # [1, seq_len, hidden_size]
-        #
-        # # calculate embedding
-        # if USE_CLS:
-        #     embedding = last_hidden_state[0, 0, :]  # [CLS] embedding
-        # else:
-        #     embedding = last_hidden_state.mean(dim=1)[0]  # mean pooling
-        #
-        # embedding = embedding.cpu().numpy().tolist()
 
         record = {
             "category": category_name,

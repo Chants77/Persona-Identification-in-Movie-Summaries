@@ -127,21 +127,16 @@ for (category_name, char_info) in tqdm(all_character_entries, desc="All Characte
 
     command = f"{base_command} -file '{tmp_path}' -outputExtension .xml"
 
-    try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        print(f"CoreNLP output：\n{result.stdout}")
-        if result.stderr:
-            print(f"CoreNLP error：\n{result.stderr}")
-    except subprocess.CalledProcessError as e:
-        print(f"failed：{e}\n error output：{e.stderr}")
-        os.remove(tmp_path)
-        continue
+    result = subprocess.run(
+        command,
+        shell=True,
+        check=True,
+        capture_output=True,
+        text=True
+    )
+    print(f"CoreNLP output：\n{result.stdout}")
+    if result.stderr:
+        print(f"CoreNLP error：\n{result.stderr}")
 
     if wait_for_file(orig_path, MAX_WAIT_SECONDS):
         os.rename(orig_path, new_path)

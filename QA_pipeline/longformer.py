@@ -28,13 +28,7 @@ def logprint(log):
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
-
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            debug_print(f"Invalid line: {line}")
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -107,42 +101,34 @@ for category_name, char_list in category_to_characters.items():
         elif summary_key_version == 3:
             summary_key = (w_movie_id, char_name.lower())
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            continue
-
         question = f"Which category best describes the character {char_name} from the movie {movie_title}?"
         context = categories_context_str + summary
         # print(f"context: {context}")
 
-        try:
-            encoding = tokenizer(question, context, return_tensors="pt")
-            input_ids = encoding["input_ids"]
+        encoding = tokenizer(question, context, return_tensors="pt")
+        input_ids = encoding["input_ids"]
 
-            attention_mask = encoding["attention_mask"]
+        attention_mask = encoding["attention_mask"]
 
-            outputs = model(input_ids, attention_mask=attention_mask)
-            start_logits = outputs.start_logits
-            end_logits = outputs.end_logits
-            all_tokens = tokenizer.convert_ids_to_tokens(input_ids[0].tolist())
+        outputs = model(input_ids, attention_mask=attention_mask)
+        start_logits = outputs.start_logits
+        end_logits = outputs.end_logits
+        all_tokens = tokenizer.convert_ids_to_tokens(input_ids[0].tolist())
 
-            answer_tokens = all_tokens[torch.argmax(start_logits): torch.argmax(end_logits) + 1]
-            answer = tokenizer.decode(
-                tokenizer.convert_tokens_to_ids(answer_tokens)
-            )  # remove space prepending space token
+        answer_tokens = all_tokens[torch.argmax(start_logits): torch.argmax(end_logits) + 1]
+        answer = tokenizer.decode(
+            tokenizer.convert_tokens_to_ids(answer_tokens)
+        )  # remove space prepending space token
 
-            logprint(f"Character: {char_name} (from {movie_title})")
-            debug_print(f"Q: {question}")
-            answer = answer.replace("_", " ").lower()
-            logprint(f"A: {answer}")
-            category_name = category_name.replace("_", " ").lower()
-            logprint(f"True Category: {category_name}")
-            logprint("-------------------------------------------------------")
-            y_true.append(category_name)
-            y_pred.append(answer)
-
-        except Exception as e:
-            logprint(f"Error processing character {char_name} from movie {movie_title}: {e}")
-            continue
+        logprint(f"Character: {char_name} (from {movie_title})")
+        debug_print(f"Q: {question}")
+        answer = answer.replace("_", " ").lower()
+        logprint(f"A: {answer}")
+        category_name = category_name.replace("_", " ").lower()
+        logprint(f"True Category: {category_name}")
+        logprint("-------------------------------------------------------")
+        y_true.append(category_name)
+        y_pred.append(answer)
 
 
 logprint(f"Max context length: {max_context}")

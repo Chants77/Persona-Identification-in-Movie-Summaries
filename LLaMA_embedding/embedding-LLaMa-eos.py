@@ -26,10 +26,10 @@ def logprint(log):
     print(log)
 
 
-DEBUG_MODE = True  # debug flag
+DEBUG_MODE = True
 SEED = 42
 QUANTIZATION = False
-LAYER = -1  # penultimate layer
+LAYER = -1
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -61,9 +61,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
         if not line:
             continue
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            logprint(f"Invalid line: {line}")
-            continue
+
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -163,14 +161,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             summary_key = (w_movie_id, char_name.lower())
 
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            logprint(f"No summary found for key: {summary_key}")
-            continue
-
-        # prompt_text = f"""[INST] Analyze the character {char_name} from {movie_title}.
-        #                 Movie summary:
-        #                 {summary}
-        #                 Generate a compact semantic representation of this character's persona. [/INST]"""
 
         prompt_text = (
             f"Analyze {char_name} from {movie_title}."
@@ -178,28 +168,19 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             f"In one word, describe {char_name}'s role:"
         ) + tokenizer.eos_token
 
-        # Tokenize
         inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True).to(embed_model.device)
         if inputs.input_ids.shape[1] == tokenizer.model_max_length:
             logprint(f"warning: {char_name}'s input is truncated.")
 
         with torch.no_grad():
             outputs = embed_model(**inputs, output_hidden_states=True)
-        # mean pooling
-        #
-        # def mean_pooling(hidden_states, attention_mask):
-        #     input_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_states.size()).float()
-        #     sum_embeddings = torch.sum(hidden_states * input_mask_expanded, 1)
-        #     sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-        #     return sum_embeddings / sum_mask
+
         eos_pos = (inputs.input_ids == tokenizer.eos_token_id).nonzero(as_tuple=True)[1].item()
         debug_print(f"eos_pos: {eos_pos}, input_ids: {inputs.input_ids}, eos_token_id: {tokenizer.eos_token_id}")
         with torch.inference_mode():
             h = gen_model(**inputs).hidden_states[LAYER][0, eos_pos]
         embedding = F.normalize(h.float(), p=2, dim=0).cpu()
         debug_print(f"Embedding shape: {embedding.shape}")
-
-        # embedding = F.normalize(pooled, p=2, dim=1).squeeze().cpu().numpy().tolist()
 
         gen_output = gen_model.generate(
             inputs.input_ids.to(gen_model.device),

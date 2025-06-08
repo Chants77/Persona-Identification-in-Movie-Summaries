@@ -209,18 +209,12 @@ assert model_for_hidden.embed_tokens.weight.shape == base_model.model.embed_toke
 
 
 pseudo_cls_id = hf_tokenizer.convert_tokens_to_ids(pseudo_cls_token)
-#assert pseudo_cls_id < hf_tokenizer.vocab_size, \
-#    f"Token ID {pseudo_cls_id} exceeds {hf_tokenizer.vocab_size}"
 
 test_prompt = f"{pseudo_cls_token} Test prompt"
 test_inputs = hf_tokenizer(test_prompt, return_tensors="pt").to("cuda")
-try:
-    test_output = model_for_hidden(**test_inputs)
-    logprint("vocabulary is valid")
-    debug_print(f"special token hidden states: {test_output.last_hidden_state[0, -1, :10]}")
-except RuntimeError as e:
-    logprint(f"{str(e)}")
-    raise
+test_output = model_for_hidden(**test_inputs)
+logprint("vocabulary is valid")
+debug_print(f"special token hidden states: {test_output.last_hidden_state[0, -1, :10]}")
 
 embedding_output_file = os.path.join("results/llama_character_embeddings_{}.jsonl".format(time.strftime('%Y%m%d', time.gmtime())))
 logprint(f"Storing embeddings in {embedding_output_file}")
@@ -233,10 +227,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         movie_title = char_info["movie"]
         char_name = char_info["char"]
 
-        if f_map_id not in map_id_to_char_data:
-            logprint(f"Character {char_name} from movie {movie_title} not found in metadata (map_id).")
-            continue
-
         w_movie_id, f_movie_id, character_name_in_meta = map_id_to_char_data[f_map_id]
 
         if summary_key_version == 2:
@@ -245,9 +235,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             summary_key = (w_movie_id, char_name.lower())
 
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            logprint(f"No summary found for key: {summary_key}")
-            continue
 
         prompt_text = (
             f"{pseudo_cls_token} Please focus on the character {char_name} from the movie {movie_title}.\n\n"
@@ -255,12 +242,11 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             f"{summary}\n"
         )
 
-        # Tokenize
         inputs = hf_tokenizer(prompt_text, return_tensors="pt")
         input_ids = inputs["input_ids"].to(model_for_hidden.device)
         attention_mask = inputs["attention_mask"].to(model_for_hidden.device)
 
-        device = model_for_hidden.device  # or torch.device("cuda") if you want
+        device = model_for_hidden.device
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
 
@@ -268,21 +254,16 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             outputs = model_for_hidden(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                output_hidden_states=True  # or rely on config
+                output_hidden_states=True
             )
 
-        all_hidden = outputs.hidden_states  # (layer0, layer1, ..., layerN)
-        final_layer = all_hidden[-1]  # [batch_size, seq_len, hidden_dim]
+        all_hidden = outputs.hidden_states
+        final_layer = all_hidden[-1]
 
-        final_layer = final_layer[0]  # [seq_len, hidden_dim]
+        final_layer = final_layer[0]
 
         pseudo_cls_id = hf_tokenizer.convert_tokens_to_ids(pseudo_cls_token)
         cls_positions = (input_ids[0] == pseudo_cls_id).nonzero(as_tuple=True)[0]
-        # if len(cls_positions) == 0:
-        #     # character_embedding = final_layer[0]
-        #     character_embedding = final_layer[: 3].mean(dim=0)
-        # else:
-        assert len(cls_positions) > 0, "CLS token not found in input IDs"
 
         idx = cls_positions[0].item()
         if weight_mode == 0:

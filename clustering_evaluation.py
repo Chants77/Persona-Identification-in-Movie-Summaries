@@ -25,12 +25,12 @@ SEED = 42
 Embedding_mode = 2
 
 PREPROCESS_CONFIG = {
-    'normalization': 'l2',          # None, 'zscore', 'minmax', 'l2'
-    'pca': {                        # None or dict with params
+    'normalization': 'l2',
+    'pca': {
         'n_components': 0.95,
         'whiten': False
     },
-    'umap': None,                   # None or dict with n_components
+    'umap': None,
     'l2_normalize_after': True
 }
 
@@ -249,25 +249,19 @@ def evaluate_clustering(embeddings, gold_labels, config):
         vi = variation_of_info(gold_labels[valid], pred[valid]) if valid.sum() else np.nan
         purity = cluster_purity(gold_labels[valid], pred[valid]) if valid.sum() else np.nan
 
-        if valid.sum():  # 确保有有效样本
-            # 分配真实标签的核心逻辑
+        if valid.sum():
             cluster_to_true_label = {}
             for cluster_id in np.unique(pred[valid]):
-                # 1. 获取当前聚类中的所有样本
                 mask = (pred == cluster_id)
                 cluster_samples = gold_labels[mask]
 
-                # 2. 找出聚类中最常见的真实标签
                 unique_labels, counts = np.unique(cluster_samples, return_counts=True)
                 true_label = unique_labels[np.argmax(counts)]
 
-                # 3. 为该聚类分配这个真实标签
                 cluster_to_true_label[cluster_id] = true_label
 
-            # 4. 创建预测标签数组
             assigned_labels = np.array([cluster_to_true_label[c] for c in pred])
 
-            # 5. 计算分类指标
             accuracy = accuracy_score(gold_labels[valid], assigned_labels[valid])
             precision = precision_score(gold_labels[valid], assigned_labels[valid], average='macro', zero_division=0)
             recall = recall_score(gold_labels[valid], assigned_labels[valid], average='macro', zero_division=0)
@@ -290,29 +284,6 @@ def evaluate_clustering(embeddings, gold_labels, config):
                  f'Recall={recall * 100:.1f}% | F1={f1 * 100:.1f}%')
 
     return results
-
-    # for P in [25, 50, 100]:
-    #     logprint(f"Evaluating with P={P} personas...")
-    #     kmeans = KMeans(n_clusters=P, n_init=50, random_state=42,
-    #                    algorithm='elkan', max_iter=500)
-    #     pred_labels = kmeans.fit_predict(embeddings)
-    #
-    #     vi_score = variation_of_info(gold_labels, pred_labels)
-    #
-    #     purity = cluster_purity(gold_labels, pred_labels)
-    #
-    #     # base = baseline_purity(gold_labels, pred_labels)
-    #     # logprint(f"Purity={purity * 100:4.1f}%  (↑{(purity - base) * 100:4.1f} pp)")
-    #
-    #     _, vi_p_value = permutation_test(gold_labels, pred_labels, variation_of_info, higher_is_better=False)
-    #     _, purity_p_value = permutation_test(gold_labels, pred_labels, cluster_purity, higher_is_better=True)
-    #
-    #     results[P] = {
-    #         'VI': (vi_score, vi_p_value),
-    #         'Purity': (purity, purity_p_value)
-    #     }
-
-    # return results
 
 
 random.seed(SEED)
@@ -347,17 +318,4 @@ start_time = time.time()
 emb = preprocess_embeddings(embeddings, PREPROCESS_CONFIG)
 results = evaluate_clustering(emb, gold_indices, CLUSTERING_CONFIG)
 logprint(f"Evaluation completed in {time.time() - start_time:.2f} seconds.")
-
-# logprint("\nVariation of Information Results:")
-# for P in [25, 50, 100]:
-#     vi_score, p_value = results[P]['VI']
-#     logprint(f"P={P}: VI={vi_score:.2f} bits (p<{p_value:.3f})")
-#
-# logprint("\nPurity Results:")
-# for P in [25, 50, 100]:
-#     purity, p_value = results[P]['Purity']
-#     logprint(f"P={P}: Purity={purity * 100:.1f}% (p<{p_value:.3f})")
-
-
-
 

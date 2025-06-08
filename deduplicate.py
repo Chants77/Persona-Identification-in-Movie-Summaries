@@ -10,14 +10,7 @@ with open(in_path, "r", encoding="utf-8") as fin, \
      open(out_path, "w", encoding="utf-8") as fout:
 
     for line in fin:
-        if not line.strip():
-            continue  # skip blank lines
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError as e:
-            print(f"skipping malformed JSON line: {e}", file=sys.stderr)
-            skipped += 1
-            continue
+        record = json.loads(line)
 
         cid = record.get("character_id")
         if cid is None:

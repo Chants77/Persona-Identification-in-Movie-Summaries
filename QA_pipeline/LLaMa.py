@@ -19,12 +19,8 @@ def logprint(log):
     print(log)
 
 def parse_response(response_text):
-    try:
-        data = json.loads(response_text)
-        return data
-    except json.JSONDecodeError:
-        print("Failed to parse JSON response.")
-        return None
+    data = json.loads(response_text)
+    return data
 
 
 SEED = 42
@@ -50,12 +46,7 @@ else:
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            logprint(f"Invalid line: {line}")
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -135,11 +126,6 @@ for (category_name, char_info) in tqdm(all_character_entries, desc="All Characte
         f_map_id = char_info["id"]
         movie_title = char_info["movie"]
         char_name = char_info["char"]
-
-        if f_map_id not in map_id_to_char_data:
-            logprint(f"Character {char_name} from movie {movie_title} not found in metadata (map_id).")
-            continue
-
         w_movie_id, f_movie_id, character_name_in_meta = map_id_to_char_data[f_map_id]
 
         if summary_key_version == 2:
@@ -148,10 +134,6 @@ for (category_name, char_info) in tqdm(all_character_entries, desc="All Characte
             summary_key = (w_movie_id, char_name.lower())
 
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            logprint(f"No summary found for key: {summary_key}")
-            continue
-
         context = categories_context_str + summary
 
         question = f"Which category best describes the character {char_name} from the movie {movie_title}? Please answer with the single best persona category name."
@@ -192,7 +174,6 @@ for (category_name, char_info) in tqdm(all_character_entries, desc="All Characte
         #     correct += 1
         single_end_time = time.time()
 
-        # Logging
         logprint(f"Time taken for character {char_name} from movie {movie_title}: {single_end_time - single_start_time:.2f} seconds")
         # logprint(f"Character: {char_name} (Movie: {movie_title})")
         # logprint(f"Q: {question}")

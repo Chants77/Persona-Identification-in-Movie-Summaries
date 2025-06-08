@@ -27,7 +27,7 @@ def logprint(log):
     print(log)
 
 
-DEBUG_MODE = False  # debug flag
+DEBUG_MODE = False
 SEED = 42
 QUANTIZATION = False
 LAYER = -1
@@ -59,12 +59,7 @@ else:
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            logprint(f"Invalid line: {line}")
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -144,10 +139,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         movie_title = char_info["movie"]
         char_name = char_info["char"]
 
-        if f_map_id not in map_id_to_char_data:
-            logprint(f"Character {char_name} from movie {movie_title} not found in metadata (map_id).")
-            continue
-
         w_movie_id, f_movie_id, character_name_in_meta = map_id_to_char_data[f_map_id]
 
         if summary_key_version == 2:
@@ -156,21 +147,12 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             summary_key = (w_movie_id, char_name.lower())
 
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            logprint(f"No summary found for key: {summary_key}")
-            continue
-
-        # prompt_text = f"""[INST] Analyze the character {char_name} from {movie_title}.
-        #                 Movie summary:
-        #                 {summary}
-        #                 Generate a compact semantic representation of this character's persona. [/INST]"""
 
         prompt_text = f"""Summarize the character {char_name} from {movie_title}.
                         Movie summary:
                         {summary}
                         """
 
-        # Tokenize
         inputs = tokenizer(
             prompt_text,
             max_length=MAX_LENGTH,
@@ -179,17 +161,15 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             return_tensors='pt'
         ).to(DEVICE)
 
-        # forward
         with torch.no_grad():
             outputs = model(**inputs)
 
-        last_hidden_state = outputs.hidden_states[LAYER]  # [1, seq_len, hidden_size]
+        last_hidden_state = outputs.hidden_states[LAYER]
 
-        # calculate embedding
         if USE_CLS:
-            embedding = last_hidden_state[0, 0, :]  # [CLS] embedding
+            embedding = last_hidden_state[0, 0, :]
         else:
-            embedding = last_hidden_state.mean(dim=1)[0]  # mean pooling
+            embedding = last_hidden_state.mean(dim=1)[0]
 
         embedding = embedding.cpu().numpy().tolist()
 

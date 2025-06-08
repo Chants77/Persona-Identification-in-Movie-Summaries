@@ -1,16 +1,8 @@
 import csv
 import json
 from transformers import pipeline
-import torch
-import random
-import numpy as np
-import os
 import time
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-import argparse
 from tqdm import tqdm
-from collections import defaultdict
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
@@ -150,114 +142,4 @@ def test_set_statistics():
 
     return df
 
-
-def plot_results(df):
-    plt.figure(figsize=(15, 6))
-
-    plt.subplot(1, 2, 1)
-    sns.histplot(df['roberta'], color="blue", label='Roberta', kde=True, bins=30)
-    sns.histplot(df['llama'], color="red", label='Llama', kde=True, bins=30, alpha=0.5)
-    plt.title("Token Length Distribution")
-    plt.xlabel("Token Count")
-    plt.legend()
-
-    plt.subplot(1, 2, 2)
-    sns.boxplot(data=df[['roberta', 'llama']], palette="Set2")
-    plt.xticks([0, 1], ['Roberta', 'Llama'])
-    plt.title("Token Length Comparison")
-    plt.ylabel("Token Count")
-
-    plt.tight_layout()
-    plt.savefig("token_comparison.png")
-    plt.show()
-
-
-if __name__ == "__main__":
-    result_df = test_set_statistics()
-    plot_results(result_df)
-
-    sns.set(style="whitegrid", palette="pastel")
-    # plt.rcParams['font.family'] = 'DejaVu Sans'
-
-    df = pd.read_csv("../results/token_counts.csv")
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
-
-    bins = list(range(0, 2700, 100))
-    colors = {'roberta': '#4C72B0', 'llama': '#DD8452'}
-
-    sns.histplot(df['roberta'],
-                 bins=bins,
-                 color=colors['roberta'],
-                 alpha=0.8,
-                 label='RoBERTa',
-                 edgecolor='white',
-                 linewidth=0.5,
-                 ax=ax1)
-
-    sns.histplot(df['llama'],
-                 bins=bins,
-                 color=colors['llama'],
-                 alpha=0.8,
-                 label='Llama',
-                 edgecolor='white',
-                 linewidth=0.5,
-                 ax=ax1)
-
-    stats_text = f'''
-    RoBERTa:
-    mean = {df.roberta.mean():.1f}
-    median = {df.roberta.median():.1f}
-
-    Llama:
-    mean = {df.llama.mean():.1f}
-    median = {df.llama.median():.1f}
-    '''
-
-    ax1.text(0.95, 0.95, stats_text,
-             transform=ax1.transAxes,
-             verticalalignment='top',
-             horizontalalignment='right',
-             bbox=dict(facecolor='white', alpha=0.8))
-
-    ax1.set_title("Token distribution", fontsize=14, pad=20)
-    ax1.set_xlabel("Token amount", labelpad=10)
-    ax1.set_ylabel("doc amount", labelpad=10)
-    ax1.legend()
-
-    scatter = sns.scatterplot(
-        x='roberta',
-        y='llama',
-        data=df,
-        alpha=0.6,
-        color='#55A868',
-        edgecolor='white',
-        linewidth=0.3,
-        ax=ax2
-    )
-
-    max_val = max(df[['roberta', 'llama']].max())
-    sns.regplot(x='roberta', y='llama', data=df,
-                scatter=False,
-                color='#C44E52',
-                line_kws={'linestyle': '--', 'alpha': 0.7},
-                ax=ax2)
-    ax2.plot([0, max_val], [0, max_val],
-             color='#4C72B0',
-             linestyle=':',
-             linewidth=1.5,
-             label='y = x')
-
-    corr = df[['roberta', 'llama']].corr().iloc[0, 1]
-    ax2.text(0.05, 0.95, f'Pearson r = {corr:.2f}',
-             transform=ax2.transAxes,
-             verticalalignment='top',
-             bbox=dict(facecolor='white', alpha=0.8))
-
-    ax2.set_title("Token", fontsize=14, pad=20)
-    ax2.set_xlabel("RoBERTa Token Amount", labelpad=10)
-    ax2.set_ylabel("Llama Token Amount", labelpad=10)
-    ax2.legend()
-
-    plt.savefig('token_analysis.png', dpi=300, bbox_inches='tight')
-
+result_df = test_set_statistics()

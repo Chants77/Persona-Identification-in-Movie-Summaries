@@ -28,13 +28,7 @@ def logprint(log):
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
-
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            debug_print(f"Invalid line: {line}")
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -44,7 +38,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
         category_to_characters[category_name].append(char_info)
         all_categories.add(category_name)
 
-all_categories = sorted(all_categories)  # sort for consistency
+all_categories = sorted(all_categories)
 logprint(f"Loaded {len(all_categories)} categories")
 
 char_metadata_file = "../data/character.metadata.tsv"
@@ -96,10 +90,6 @@ for category_name, char_list in category_to_characters.items():
         movie_title = char_info["movie"]
         char_name = char_info["char"]
 
-        if f_map_id not in map_id_to_char_data:
-            logprint(f"Character {char_name} from movie {movie_title} not found in metadata.")
-            continue
-
         w_movie_id, f_movie_id, character_name_in_meta = map_id_to_char_data[f_map_id]
 
         if summary_key_version == 2:
@@ -107,38 +97,29 @@ for category_name, char_list in category_to_characters.items():
         elif summary_key_version == 3:
             summary_key = (w_movie_id, char_name.lower())
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            continue
 
         question = f"Which category best describes the character {char_name} from the movie {movie_title}?"
         context = categories_context_str + summary
-        # print(f"context: {context}")
 
-        try:
-            inputs = tokenizer(question, context, return_tensors="pt")
+        inputs = tokenizer(question, context, return_tensors="pt")
 
-            with torch.no_grad():
-                outputs = model(**inputs)
+        with torch.no_grad():
+            outputs = model(**inputs)
 
-            answer_start_index = outputs.start_logits.argmax()
-            answer_end_index = outputs.end_logits.argmax()
-            predict_answer_token_ids = inputs.input_ids[0, answer_start_index: answer_end_index + 1]
-            predict_answer_token = tokenizer.decode(predict_answer_token_ids)
+        answer_start_index = outputs.start_logits.argmax()
+        answer_end_index = outputs.end_logits.argmax()
+        predict_answer_token_ids = inputs.input_ids[0, answer_start_index: answer_end_index + 1]
+        predict_answer_token = tokenizer.decode(predict_answer_token_ids)
 
-            logprint(f"Character: {char_name} (from {movie_title})")
-            debug_print(f"Q: {question}")
-            answer = predict_answer_token.replace("_", " ").lower()
-            logprint(f"A: {answer}")
-            category_name = category_name.replace("_", " ").lower()
-            logprint(f"True Category: {category_name}")
-            logprint("-------------------------------------------------------")
-            y_true.append(category_name)
-            y_pred.append(answer)
-
-        except Exception as e:
-            logprint(f"Error processing character {char_name} from movie {movie_title}: {e}")
-            continue
-
+        logprint(f"Character: {char_name} (from {movie_title})")
+        debug_print(f"Q: {question}")
+        answer = predict_answer_token.replace("_", " ").lower()
+        logprint(f"A: {answer}")
+        category_name = category_name.replace("_", " ").lower()
+        logprint(f"True Category: {category_name}")
+        logprint("-------------------------------------------------------")
+        y_true.append(category_name)
+        y_pred.append(answer)
 
 logprint(f"Max context length: {max_context}")
 logprint(f"Min context length: {min_context}")

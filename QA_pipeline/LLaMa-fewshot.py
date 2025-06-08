@@ -19,12 +19,8 @@ def logprint(log):
     print(log)
 
 def parse_response(response_text):
-    try:
-        data = json.loads(response_text)
-        return data
-    except json.JSONDecodeError:
-        print("Failed to parse JSON response.")
-        return None
+    data = json.loads(response_text)
+    return data
 
 
 def build_few_shot_context(current_index, all_entries, summary_key_version, max_examples=3):
@@ -35,13 +31,9 @@ def build_few_shot_context(current_index, all_entries, summary_key_version, max_
     for idx in selected_indices:
         cat_name, char_info = all_entries[idx]
         f_map_id = char_info["id"]
-        if f_map_id not in map_id_to_char_data:
-            continue
         w_movie_id, _, _ = map_id_to_char_data[f_map_id]
         summary_key = w_movie_id if summary_key_version == 2 else (w_movie_id, char_info["char"].lower())
         summary = movie_summaries.get(summary_key, "").strip()
-        if not summary:
-            continue
 
         truncated_summary = " ".join(summary.split()[:100]) + "..."
         examples.append(f"Example: Synopsis: {truncated_summary}. Persona: {cat_name}")
@@ -71,12 +63,7 @@ else:
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            logprint(f"Invalid line: {line}")
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -169,10 +156,6 @@ for i, (category_name, char_info) in tqdm(enumerate(all_character_entries), desc
             summary_key = (w_movie_id, char_name.lower())
 
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            logprint(f"No summary found for key: {summary_key}")
-            continue
-
         few_shot_examples = build_few_shot_context(i, all_character_entries, summary_key_version)
         context = categories_context_str + few_shot_examples + "\n\n" + summary
         # context = categories_context_str + summary
@@ -225,7 +208,6 @@ for i, (category_name, char_info) in tqdm(enumerate(all_character_entries), desc
         #     correct += 1
         single_end_time = time.time()
 
-        # Logging
         logprint(json.dumps(messages, indent=2))
         logprint(f"Time taken for character {char_name} from movie {movie_title}: {single_end_time - single_start_time:.2f} seconds")
         # logprint(f"Character: {char_name} (Movie: {movie_title})")

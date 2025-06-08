@@ -6,7 +6,7 @@ from typing import List, Dict
 Record = Dict[str, str]
 
 
-def read_records(input_file) -> List[Record]:
+def read_records(input_file):
     records: List[Record] = []
     category_counts: Counter[str] = Counter()
 
@@ -27,7 +27,7 @@ def read_records(input_file) -> List[Record]:
     return records, category_counts
 
 
-def choose_categories(records: List[Record], category_counts: Counter) -> Dict[str, str]:
+def choose_categories(records, category_counts):
     id_to_category: Dict[str, str] = {}
 
     for rec in records:
@@ -44,7 +44,7 @@ def choose_categories(records: List[Record], category_counts: Counter) -> Dict[s
     return id_to_category
 
 
-def write_filtered(records: List[Record], keep_map: Dict[str, str], output_file) -> int:
+def write_filtered(records, keep_map, output_file):
     kept = [rec["line"] for rec in records if rec["category"] == keep_map[rec["id"]]]
 
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -54,16 +54,12 @@ def write_filtered(records: List[Record], keep_map: Dict[str, str], output_file)
     return len(kept)
 
 
-def main() -> None:
-    input_file = '../data/tvtropes.clusters.txt'
-    output_file = '../data/tvtropes.clusters.cleaned.txt'
+input_file = '../data/tvtropes.clusters.txt'
+output_file = '../data/tvtropes.clusters.cleaned.txt'
 
-    records, category_counts = read_records(input_file)
-    id_preference = choose_categories(records, category_counts)
-    kept = write_filtered(records, id_preference, output_file)
+records, category_counts = read_records(input_file)
+id_preference = choose_categories(records, category_counts)
+kept = write_filtered(records, id_preference, output_file)
 
-    print(f"Kept {kept:,} of {len(records):,} lines → {output_file}")
+print(f"Kept {kept:,} of {len(records):,} lines → {output_file}")
 
-
-if __name__ == "__main__":
-    main()

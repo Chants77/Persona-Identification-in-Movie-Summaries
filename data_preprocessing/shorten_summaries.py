@@ -22,18 +22,14 @@ def main():
             if len(parts) != 2:
                 continue
             category, char_info_str = parts
-            try:
-                char_info = json.loads(char_info_str)
-                tvtropes_data.append({
-                    "category": category,
-                    "char_name": char_info.get("char", ""),
-                    "movie_name": char_info.get("movie", ""),
-                    "actor_name": char_info.get("actor", ""),
-                    "freebase_map_id": char_info.get("id", ""),
-                })
-            except Exception as e:
-                print(f"[Warning] Could not parse JSON on line: {line}\n  Error: {e}")
-                continue
+            char_info = json.loads(char_info_str)
+            tvtropes_data.append({
+                "category": category,
+                "char_name": char_info.get("char", ""),
+                "movie_name": char_info.get("movie", ""),
+                "actor_name": char_info.get("actor", ""),
+                "freebase_map_id": char_info.get("id", ""),
+            })
     print(f"Loaded {len(tvtropes_data)} entries from {tvtropes_file}.")
 
     id_to_char_data = {}

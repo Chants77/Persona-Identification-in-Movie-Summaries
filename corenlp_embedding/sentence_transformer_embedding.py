@@ -56,7 +56,6 @@ for idx, row in enumerate(characters):
 print(f"Built {len(all_sentences):,} sentences "
       f"for {len(characters):,} characters.", file=sys.stderr)
 
-# Encode sentences
 model = SentenceTransformer("all-MiniLM-L6-v2")
 sent_embeds = model.encode(
     all_sentences,

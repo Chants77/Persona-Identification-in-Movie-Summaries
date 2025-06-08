@@ -180,18 +180,13 @@ assert model_for_hidden.embed_tokens.weight.shape == base_model.model.embed_toke
 
 
 pseudo_cls_id = hf_tokenizer.convert_tokens_to_ids(pseudo_cls_token)
-#assert pseudo_cls_id < hf_tokenizer.vocab_size, \
-#    f"Token ID {pseudo_cls_id} exceeds {hf_tokenizer.vocab_size}"
 
 test_prompt = f"{pseudo_cls_token} Test prompt"
 test_inputs = hf_tokenizer(test_prompt, return_tensors="pt").to("cuda")
-try:
-    test_output = model_for_hidden(**test_inputs)
-    logprint("vocabulary is valid")
-    debug_print(f"special token hidden states: {test_output.last_hidden_state[0, -1, :10]}")
-except RuntimeError as e:
-    logprint(f"{str(e)}")
-    raise
+
+test_output = model_for_hidden(**test_inputs)
+logprint("vocabulary is valid")
+debug_print(f"special token hidden states: {test_output.last_hidden_state[0, -1, :10]}")
 
 embedding_output_file = os.path.join("results/llama_character_embeddings_{}.jsonl".format(time.strftime('%Y%m%d', time.gmtime())))
 logprint(f"Storing embeddings in {embedding_output_file}")
@@ -216,9 +211,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             summary_key = (w_movie_id, char_name.lower())
 
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            logprint(f"No summary found for key: {summary_key}")
-            continue
 
         prompt_text = (
             f"Analyze {char_name} from {movie_title}."
@@ -242,10 +234,10 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
                 output_hidden_states=True
             )
 
-        all_hidden = outputs.hidden_states  # (layer0, layer1, ..., layerN)
-        final_layer = all_hidden[-1]  # [batch_size, seq_len, hidden_dim]
+        all_hidden = outputs.hidden_states
+        final_layer = all_hidden[-1]
 
-        final_layer = final_layer[0]  # [seq_len, hidden_dim]
+        final_layer = final_layer[0]
 
         pseudo_cls_id = hf_tokenizer.convert_tokens_to_ids(pseudo_cls_token)
         cls_positions = (input_ids[0] == pseudo_cls_id).nonzero(as_tuple=True)[0]

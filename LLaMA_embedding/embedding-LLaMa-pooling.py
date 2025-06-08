@@ -61,9 +61,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
         if not line:
             continue
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            logprint(f"Invalid line: {line}")
-            continue
+
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -163,14 +161,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             summary_key = (w_movie_id, char_name.lower())
 
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            logprint(f"No summary found for key: {summary_key}")
-            continue
-
-        # prompt_text = f"""[INST] Analyze the character {char_name} from {movie_title}.
-        #                 Movie summary:
-        #                 {summary}
-        #                 Generate a compact semantic representation of this character's persona. [/INST]"""
 
         prompt_text = (
             f"Analyze {char_name} from {movie_title}."

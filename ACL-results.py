@@ -1,13 +1,12 @@
-# save as filter_personas.py
 import csv, sys, json
 import numpy as np
 from sklearn.metrics import mutual_info_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 
-posterior_file = "ACL-results/reg50.100.lda.log.txt"        # path to the big file
+posterior_file = "ACL-results/reg50.100.lda.log.txt"
 
-target_ids = set()  # set to hold target character IDs
+target_ids = set()
 
 tvtropes_file = "data/tvtropes.clusters.cleaned.txt"
 
@@ -16,11 +15,7 @@ gold = {}
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         # print(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -34,17 +29,13 @@ pred = {}
 with open(posterior_file, encoding="utf-8") as f:
     reader = csv.reader(f, delimiter="\t")
     for row in reader:
-        if not row:            # skip blank lines
-            print("Skipping empty line")
-            continue
         char_id = row[0]
         # print(f"Processing character ID: {char_id}")
         if char_id in target_ids:
-            persona_mode = row[6]          # column 5 (0-based) = cluster id
-            # You can also grab the full 50-dimensional posterior:
+            persona_mode = row[6]
             posterior = row[7:57]
             pred[char_id] = persona_mode
-            print(f"{char_id}\t{persona_mode}\t{row[2]}")  # id, persona, movie
+            print(f"{char_id}\t{persona_mode}\t{row[2]}")
 
 def variation_of_info(gold_clusters, pred_clusters):
     n = len(gold_clusters)
@@ -84,21 +75,14 @@ pred_clusters = np.array(pred_info)
 
 cluster_to_true_label = {}
 for cluster_id in np.unique(pred_clusters):
-    # 1. 获取当前聚类中的所有样本
     mask = (pred_clusters == cluster_id)
     cluster_samples = gold_clusters[mask]
-
-    # 2. 找出聚类中最常见的真实标签
     unique_labels, counts = np.unique(cluster_samples, return_counts=True)
     true_label = unique_labels[np.argmax(counts)]
-
-    # 3. 为该聚类分配这个真实标签
     cluster_to_true_label[cluster_id] = true_label
 
-# 4. 创建预测标签数组
 assigned_labels = np.array([cluster_to_true_label[c] for c in pred_clusters])
 
-# 5. 计算分类指标
 accuracy = accuracy_score(gold_clusters, assigned_labels)
 precision = precision_score(gold_clusters, assigned_labels, average='macro', zero_division=0)
 recall = recall_score(gold_clusters, assigned_labels, average='macro', zero_division=0)

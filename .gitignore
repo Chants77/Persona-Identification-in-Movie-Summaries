@@ -21,3 +21,4 @@ data_preprocessing/missing_ids.txt
 images/*
 results/*
 fastText/*
+similarity_classification/*

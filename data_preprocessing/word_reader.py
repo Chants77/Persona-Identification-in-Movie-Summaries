@@ -24,9 +24,6 @@ def process_data(data_path, character_metadata):
         for line in f:
             parts = line.strip().split('\t')
 
-            # agent_line = parts[1]
-            # patient_line = parts[2]
-            # modifier_line = parts[3]
             agent_line = parts[3]
             patient_line = parts[4]
             modifier_line = parts[5]
@@ -60,8 +57,6 @@ def process_data(data_path, character_metadata):
             meta = character_metadata[entity_id]
             if meta['gender'] in ('M', 'F'):
                 entities[entity_id]['attribute'].append(f"gender:{meta['gender']}")
-            # if meta['age_bucket'] != -1:
-            #     entities[entity_id]['attribute'].append(f"age:{meta['age_bucket']}")
 
     for entity_id in entities:
         for key in ['agent', 'patient', 'attribute']:

@@ -27,13 +27,7 @@ def logprint(log):
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
-
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            debug_print(f"Invalid line: {line}")
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -100,10 +94,6 @@ for category_name, char_list in category_to_characters.items():
         movie_title = char_info["movie"]
         char_name = char_info["char"]
 
-        if f_map_id not in map_id_to_char_data:
-            logprint(f"Character {char_name} from movie {movie_title} not found in metadata.")
-            continue
-
         w_movie_id, f_movie_id, character_name_in_meta = map_id_to_char_data[f_map_id]
 
         if summary_key_version == 2:
@@ -111,60 +101,52 @@ for category_name, char_list in category_to_characters.items():
         elif summary_key_version == 3:
             summary_key = (w_movie_id, char_name.lower())
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            continue
 
         question = f"Which category best describes the character {char_name} from the movie {movie_title}?"
         context = categories_context_str + summary
         # print(f"context: {context}")
 
-        try:
-            encoded_context = qa_pipeline_tokenizer(
-                context,
-                truncation=False,
-                max_length=qa_pipeline_tokenizer.model_max_length,
-                return_tensors="pt"
-            )
-            debug_print("Number of tokens fed into pipeline:" + str(encoded_context["input_ids"].shape[1]))
+        encoded_context = qa_pipeline_tokenizer(
+            context,
+            truncation=False,
+            max_length=qa_pipeline_tokenizer.model_max_length,
+            return_tensors="pt"
+        )
+        debug_print("Number of tokens fed into pipeline:" + str(encoded_context["input_ids"].shape[1]))
 
-            if encoded_context["input_ids"].shape[1] > max_context:
-                max_context = encoded_context["input_ids"].shape[1]
-            if encoded_context["input_ids"].shape[1] < min_context:
-                min_context = encoded_context["input_ids"].shape[1]
+        if encoded_context["input_ids"].shape[1] > max_context:
+            max_context = encoded_context["input_ids"].shape[1]
+        if encoded_context["input_ids"].shape[1] < min_context:
+            min_context = encoded_context["input_ids"].shape[1]
 
-            encoded_categories_context = qa_pipeline_tokenizer(
-                categories_context_str,
-                truncation=False,
-                max_length=qa_pipeline_tokenizer.model_max_length,
-                return_tensors="pt"
-            )
-            debug_print("Number of category tokens:" + str(encoded_categories_context["input_ids"].shape[1]))
+        encoded_categories_context = qa_pipeline_tokenizer(
+            categories_context_str,
+            truncation=False,
+            max_length=qa_pipeline_tokenizer.model_max_length,
+            return_tensors="pt"
+        )
+        debug_print("Number of category tokens:" + str(encoded_categories_context["input_ids"].shape[1]))
 
-            encoded_question = qa_pipeline_tokenizer(
-                question,
-                truncation=False,
-                max_length=qa_pipeline_tokenizer.model_max_length,
-                return_tensors="pt"
-            )
-            debug_print("Number of question tokens:" + str(encoded_question["input_ids"].shape[1]))
+        encoded_question = qa_pipeline_tokenizer(
+            question,
+            truncation=False,
+            max_length=qa_pipeline_tokenizer.model_max_length,
+            return_tensors="pt"
+        )
+        debug_print("Number of question tokens:" + str(encoded_question["input_ids"].shape[1]))
 
-            result = qa_pipeline(question=question, context=context)
-            answer = result.get('answer', 'No answer found')
+        result = qa_pipeline(question=question, context=context)
+        answer = result.get('answer', 'No answer found')
 
-            logprint(f"Character: {char_name} (from {movie_title})")
-            debug_print(f"Q: {question}")
-            answer = answer.replace("_", " ").lower()
-            logprint(f"A: {answer}")
-            category_name = category_name.replace("_", " ").lower()
-            logprint(f"True Category: {category_name}")
-            logprint("-------------------------------------------------------")
-            y_true.append(category_name)
-            y_pred.append(answer)
-
-        except Exception as e:
-            logprint(f"Error processing character {char_name} from movie {movie_title}: {e}")
-            continue
-
+        logprint(f"Character: {char_name} (from {movie_title})")
+        debug_print(f"Q: {question}")
+        answer = answer.replace("_", " ").lower()
+        logprint(f"A: {answer}")
+        category_name = category_name.replace("_", " ").lower()
+        logprint(f"True Category: {category_name}")
+        logprint("-------------------------------------------------------")
+        y_true.append(category_name)
+        y_pred.append(answer)
 
 logprint(f"Max context length: {max_context}")
 logprint(f"Min context length: {min_context}")

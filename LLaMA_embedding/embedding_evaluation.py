@@ -75,7 +75,6 @@ def visualize_embeddings(embeddings, labels):
     from sklearn.manifold import TSNE
     import matplotlib.pyplot as plt
 
-    # t-SNE
     tsne = TSNE(n_components=2, random_state=42)
     reduced = tsne.fit_transform(embeddings)
 
@@ -88,9 +87,8 @@ def visualize_embeddings(embeddings, labels):
 
 
 embeddings, gold_labels, _ = load_embeddings("../results/bin/llama_embeddings_weight1_20250419.jsonl")
-# emb = preprocess_embeddings(embeddings)
+
 emb = embeddings
 analyze_embeddings(emb)
 analyze_class_separation(emb, gold_labels)
-# visualize_embeddings(emb, gold_labels)
 

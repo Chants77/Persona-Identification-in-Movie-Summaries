@@ -48,10 +48,10 @@ def build_few_shot_context(current_index, all_entries, summary_key_version, max_
     return "\n".join(examples)
 
 
-DEBUG_MODE = False  # debug flag
+DEBUG_MODE = False
 SEED = 42
 QUANTIZATION = False
-LAYER = -2  # penultimate layer
+LAYER = -2
 WORD_NUM = 1
 FEWSHOT = True
 
@@ -83,12 +83,7 @@ else:
 with open(tvtropes_file, 'r', encoding='utf-8') as f:
     for line in f:
         line = line.strip()
-        if not line:
-            continue
         parts = line.split('\t', 1)
-        if len(parts) != 2:
-            logprint(f"Invalid line: {line}")
-            continue
         category_name, char_info_str = parts
         char_info = json.loads(char_info_str)
         logprint(f"Category: {category_name}, Character: {char_info['char']}, Movie: {char_info['movie']}")
@@ -187,9 +182,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             summary_key = (w_movie_id, char_name.lower())
 
         summary = movie_summaries.get(summary_key, "")
-        if not summary.strip():
-            logprint(f"No summary found for key: {summary_key}")
-            continue
 
         few_shot_examples = build_few_shot_context(i, all_character_entries, summary_key_version)
 
@@ -244,14 +236,12 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         #                 """
 
 
-        # Tokenize
         inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True).to(gen_model.device)
         if inputs.input_ids.shape[1] == tokenizer.model_max_length:
             logprint(f"warning: {char_name}'s input is truncated.")
 
         # with torch.no_grad():
         #     outputs = embed_model(**inputs, output_hidden_states=True)
-        # mean pooling
 
         def mean_pooling(hidden_states, attention_mask):
             input_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_states.size()).float()
@@ -272,24 +262,23 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         )
         # gen_text = tokenizer.decode(gen_output[0], skip_special_tokens=True)
 
-        steps = len(gen_output.hidden_states)  # = number of new tokens
+        steps = len(gen_output.hidden_states)
         vecs = []
         for s in range(steps):
-            h_step_layer = gen_output.hidden_states[s][LAYER]  # tensor (1,1,dim)
-            vecs.append(h_step_layer[0, -1, :].squeeze())  # (dim,)
+            h_step_layer = gen_output.hidden_states[s][LAYER]
+            vecs.append(h_step_layer[0, -1, :].squeeze())
             debug_print(f"{h_step_layer[0, -1, :].shape}")
-        vec = torch.stack(vecs).mean(0)  # (dim,)
+        vec = torch.stack(vecs).mean(0)
         embedding = F.normalize(vec.float(), p=2, dim=0).squeeze().cpu().numpy().tolist()
 
-        # hiddens = gen_output.hidden_states[-2]  # penultimate layer
-        # indices of generated tokens: last n positions
+        # hiddens = gen_output.hidden_states[-2]
         new_tok_start = inputs.input_ids.shape[1]
         # debug_print(f"new_tok_start: {new_tok_start}, hiddens.shape: {hiddens.shape}, inputs.input_ids.shape: {inputs.input_ids.shape}")
-        # new_tok_end = hiddens.shape[1]  # inclusive
+        # new_tok_end = hiddens.shape[1]
         # debug_print(f"new_tok_end: {new_tok_end}")
-        # new_vecs = hiddens[0, new_tok_start:new_tok_end, :]  # (n, dim)
-        new_ids = gen_output.sequences[0][new_tok_start:]  # numeric
-        new_tokens = tokenizer.convert_ids_to_tokens(new_ids)  # string form
+        # new_vecs = hiddens[0, new_tok_start:new_tok_end, :]
+        new_ids = gen_output.sequences[0][new_tok_start:]
+        new_tokens = tokenizer.convert_ids_to_tokens(new_ids)
 
         # logprint("idx | token_id | token_str            | is_special")
         # logprint("----+----------+----------------------+-----------")
@@ -303,7 +292,6 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         #             tokenizer.convert_tokens_to_ids("<|eot_id|>"): "EOT"}.get(tid, "")
         #     logprint(f"{i:3} | {tid:8} | {tok:<20} | {flag}")
 
-        # 3) keep only first 3 real words (strip punctuation)
         gen_text = tokenizer.decode(gen_output.sequences[0][new_tok_start:])
         logprint(f"Generated text: {gen_text}")
         # words = [m.group() for m in RE_WORD.finditer(gen_text)]

@@ -14,23 +14,46 @@ import torch.nn.functional as F
 
 def debug_print(msg):
     if DEBUG_MODE:
-        log_file = os.path.join("logs/debug-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
+        log_file = os.path.join("../logs/debug-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
         with open(log_file, "a", encoding="utf-8") as fout:
             fout.write(msg + "\n")
         print(f"[DEBUG] {msg}")
 
 def logprint(log):
-    log_file = os.path.join("logs/llama_{}layer_{}words_{}.logs".format(LAYER, WORD_NUM, time.strftime('%Y%m%d', time.gmtime())))
+    log_file = os.path.join("../logs/llama_{}layer_{}words_{}.logs".format(LAYER, WORD_NUM, time.strftime('%Y%m%d', time.gmtime())))
     with open(log_file, "a", encoding="utf-8") as fout:
         fout.write(log + "\n")
     print(log)
 
 
-DEBUG_MODE = True  # debug flag
+def build_few_shot_context(current_index, all_entries, summary_key_version, max_examples=3):
+    examples = []
+    candidate_indices = [i for i in range(len(all_entries)) if i != current_index]
+    selected_indices = random.sample(candidate_indices, min(max_examples, len(candidate_indices)))
+
+    for idx in selected_indices:
+        cat_name, char_info = all_entries[idx]
+        f_map_id = char_info["id"]
+        if f_map_id not in map_id_to_char_data:
+            continue
+        w_movie_id, _, _ = map_id_to_char_data[f_map_id]
+        summary_key = w_movie_id if summary_key_version == 2 else (w_movie_id, char_info["char"].lower())
+        summary = movie_summaries.get(summary_key, "").strip()
+        if not summary:
+            continue
+
+        truncated_summary = " ".join(summary.split()[:100]) + "..."
+        examples.append(f"Example: Synopsis: {truncated_summary}. Persona: {cat_name}")
+
+    return "\n".join(examples)
+
+
+DEBUG_MODE = False  # debug flag
 SEED = 42
 QUANTIZATION = False
 LAYER = -2  # penultimate layer
-WORD_NUM = 10
+WORD_NUM = 1
+FEWSHOT = True
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -46,7 +69,8 @@ if torch.cuda.is_available():
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "../data/tvtropes.clusters.txt"
+# tvtropes_file = "../data/tvtropes.clusters.txt"
+tvtropes_file = "../data/tvtropes.clusters.cleaned.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -109,7 +133,6 @@ with open(plot_summaries_file, 'r', encoding='utf-8') as f:
             summary_key_version = 3
 
 logprint(f"Total categories: {len(all_categories)}")
-categories_context_str = "The possible categories are: " + ", ".join(all_categories) + ". "
 
 all_character_entries = []
 for category_name, char_list in category_to_characters.items():
@@ -141,12 +164,12 @@ if QUANTIZATION:
 gen_model = LlamaForCausalLM.from_pretrained(model_id, **load_kwargs)
 # embed_model = LlamaModel.from_pretrained(model_id, **load_kwargs)
 
-embedding_output_file = os.path.join("results/llama_{}layer_{}words_{}.jsonl".format(LAYER, WORD_NUM, time.strftime('%Y%m%d', time.gmtime())))
+embedding_output_file = os.path.join("../results/pt5_llama_{}layer_{}words_{}.jsonl".format(LAYER, WORD_NUM, time.strftime('%Y%m%d', time.gmtime())))
 logprint(f"Storing embeddings in {embedding_output_file}")
 
 
 with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
-    for (category_name, char_info) in tqdm(all_character_entries, desc="All Characters"):
+    for i, (category_name, char_info) in tqdm(enumerate(all_character_entries), desc="All Characters"):
         single_start_time = time.time()
         f_map_id = char_info["id"]
         movie_title = char_info["movie"]
@@ -168,16 +191,58 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             logprint(f"No summary found for key: {summary_key}")
             continue
 
+        few_shot_examples = build_few_shot_context(i, all_character_entries, summary_key_version)
+
+        # 0
         # prompt_text = f"""[INST] Analyze the character {char_name} from {movie_title}.
         #                 Movie summary:
         #                 {summary}
         #                 Generate a compact semantic representation of this character's persona. [/INST]"""
+        
+        # 1
+        # prompt_text = f"""The movie {movie_title} is about the character {char_name}.
+        #                 Movie summary:
+        #                 {summary}
+        #                 In {WORD_NUM} words, describe {char_name}'s role:
+        #                 """
+        
+        # 2
+        # prompt_text = f"""Please focus on the character {char_name} from the movie {movie_title}.
+        #                 Movie summary: {summary}
+        #                 In {WORD_NUM} words, describe {char_name}'s role:
+        #                 """
 
-        prompt_text = f"""The movie {movie_title} is about the character {char_name}.
-                        Movie summary:
-                        {summary}
-                        In {WORD_NUM} words, describe {char_name}'s role:
-                        """
+        # 3
+        # prompt_text = f"""Follow the examples below: {few_shot_examples}
+        #                 Now answer this new query: {char_name} is from the movie {movie_title}.
+        #                 Movie summary: {summary}
+        #                 In {WORD_NUM} words, describe {char_name}'s role:
+        #                 """
+
+        # 4
+        # prompt_text = f"""Character name: {char_name}.
+        #                 Movie title: {movie_title}.
+        #                 Movie summary: {summary}
+        #                 In {WORD_NUM} words, describe {char_name}'s role:
+        #                 """
+
+        # 5
+        if FEWSHOT:
+            prompt_text = f"""Follow the examples below: {few_shot_examples}
+                            Now answer this new query: Analyze {char_name} from {movie_title}.
+                            Movie summary: {summary}
+                            In {WORD_NUM} words, describe {char_name}'s role:
+                            """
+        else:
+            prompt_text = f"""Analyze {char_name} from {movie_title}.
+                            Movie summary: {summary}
+                            In {WORD_NUM} words, describe {char_name}'s role:
+                            """
+        # 6
+        # prompt_text = f"""{movie_title}: {summary}
+        #                 In {WORD_NUM} words, describe {char_name}'s role:
+        #                 """
+
 
         # Tokenize
         inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True).to(gen_model.device)
@@ -240,7 +305,7 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
 
         # 3) keep only first 3 real words (strip punctuation)
         gen_text = tokenizer.decode(gen_output.sequences[0][new_tok_start:])
-        debug_print(f"Generated text: {gen_text}")
+        logprint(f"Generated text: {gen_text}")
         # words = [m.group() for m in RE_WORD.finditer(gen_text)]
         # keep_n = min(3, len(words))
         # kept_vecs = new_vecs[:keep_n]  # (≤3, dim)

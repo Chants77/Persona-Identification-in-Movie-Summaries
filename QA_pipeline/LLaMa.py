@@ -154,7 +154,7 @@ for (category_name, char_info) in tqdm(all_character_entries, desc="All Characte
 
         context = categories_context_str + summary
 
-        question = f"Which category best describes the character {char_name} from the movie {movie_title}? Give me only the category."
+        question = f"Which category best describes the character {char_name} from the movie {movie_title}? Please answer with the single best persona category name."
 
         messages = [
             {"role": "system", "content": "You are a bot that responds to film character classification queries."},
@@ -174,7 +174,7 @@ for (category_name, char_info) in tqdm(all_character_entries, desc="All Characte
 
             predicted_cat = "No valid category"
             for cat in all_categories:
-                if cat in generated_cat:
+                if cat.replace("_", " ").lower() in generated_cat.replace("_", " ").lower():
                     predicted_cat = cat
                     break
 

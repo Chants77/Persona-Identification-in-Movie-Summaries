@@ -1,5 +1,6 @@
 import torch
-from transformers import AutoTokenizer, LlamaModel, LlamaForCausalLM, AutoModelForCausalLM, pipeline, LlamaTokenizer
+from transformers import AutoTokenizer, LlamaModel, LlamaForCausalLM, AutoModelForCausalLM, pipeline, LlamaTokenizer, LongformerModel, LongformerTokenizer
+from typing import List
 import csv
 import json
 import random
@@ -20,7 +21,7 @@ def debug_print(msg):
         print(f"[DEBUG] {msg}")
 
 def logprint(log):
-    log_file = os.path.join("logs/llama-con-eos-layer{}-{}.logs".format(LAYER, time.strftime('%Y%m%d', time.gmtime())))
+    log_file = os.path.join("logs/llama-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
     with open(log_file, "a", encoding="utf-8") as fout:
         fout.write(log + "\n")
     print(log)
@@ -29,7 +30,6 @@ def logprint(log):
 DEBUG_MODE = True  # debug flag
 SEED = 42
 QUANTIZATION = False
-LAYER = -1  # penultimate layer
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -45,7 +45,7 @@ if torch.cuda.is_available():
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "../data/tvtropes.clusters.cleaned.txt"
+tvtropes_file = "data/tvtropes.clusters.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -76,7 +76,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
 all_categories = sorted(all_categories)
 logprint(f"Loaded {len(all_categories)} categories")
 
-char_metadata_file = "../data/character.metadata.tsv"
+char_metadata_file = "data/character.metadata.tsv"
 id_to_char_data = {}
 map_id_to_char_data = {}
 
@@ -91,7 +91,7 @@ with open(char_metadata_file, 'r', encoding='utf-8') as f:
         id_to_char_data[freebase_char_id] = (w_movie_id, f_movie_id, character_name)
         map_id_to_char_data[map_id] = (w_movie_id, f_movie_id, character_name)
 
-plot_summaries_file = "../data/plot_summaries.txt"
+plot_summaries_file = "data/plot_summaries.txt"
 movie_summaries = {}
 summary_key_version = 0
 
@@ -115,32 +115,19 @@ for category_name, char_list in category_to_characters.items():
     for char_info in char_list:
         all_character_entries.append((category_name, char_info))
 
-model_id = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+MODEL_NAME = 'allenai/longformer-base-4096'
+USE_CLS = True
+MAX_LENGTH = 4096
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-debug_print("Loading raw tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained(
-    model_id,
-    legacy=False,
-    use_fast=True
-)
+debug_print("Loading LongFormer...")
 
-debug_print("Loading generation model...")
+tokenizer = LongformerTokenizer.from_pretrained(MODEL_NAME)
+model = LongformerModel.from_pretrained(MODEL_NAME, output_hidden_states=True)
+model = model.to(DEVICE)
+model.eval()
 
-load_kwargs = {
-    "torch_dtype": torch.bfloat16,
-    "device_map": "auto"
-}
-
-if QUANTIZATION:
-    load_kwargs.update({
-        "load_in_4bit": True,
-        "bnb_4bit_compute_dtype": torch.bfloat16
-    })
-
-gen_model = LlamaForCausalLM.from_pretrained(model_id, **load_kwargs)
-embed_model = LlamaModel.from_pretrained(model_id, **load_kwargs)
-
-embedding_output_file = os.path.join("../results/llama_con_eos_layer{}_{}.jsonl".format(LAYER, time.strftime('%Y%m%d', time.gmtime())))
+embedding_output_file = os.path.join("results/longformer_embeddings_{}.jsonl".format(time.strftime('%Y%m%d', time.gmtime())))
 logprint(f"Storing embeddings in {embedding_output_file}")
 
 
@@ -172,51 +159,40 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         #                 {summary}
         #                 Generate a compact semantic representation of this character's persona. [/INST]"""
 
-        prompt_text = (
-            f"Analyze {char_name} from {movie_title}."
-            f"Movie summary: {summary}"
-            f"In one word, describe {char_name}'s role:"
-        ) + tokenizer.eos_token
+        prompt_text = f"""Summarize the character {char_name} from {movie_title}.
+                        Movie summary:
+                        {summary}
+                        """
 
         # Tokenize
-        inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True).to(embed_model.device)
-        if inputs.input_ids.shape[1] == tokenizer.model_max_length:
-            logprint(f"warning: {char_name}'s input is truncated.")
+        inputs = tokenizer(
+            prompt_text,
+            max_length=MAX_LENGTH,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
+        ).to(DEVICE)
 
+        # forward
         with torch.no_grad():
-            outputs = embed_model(**inputs, output_hidden_states=True)
-        # mean pooling
-        #
-        # def mean_pooling(hidden_states, attention_mask):
-        #     input_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_states.size()).float()
-        #     sum_embeddings = torch.sum(hidden_states * input_mask_expanded, 1)
-        #     sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-        #     return sum_embeddings / sum_mask
-        eos_pos = (inputs.input_ids == tokenizer.eos_token_id).nonzero(as_tuple=True)[1].item()
-        debug_print(f"eos_pos: {eos_pos}, input_ids: {inputs.input_ids}, eos_token_id: {tokenizer.eos_token_id}")
-        with torch.inference_mode():
-            h = gen_model(**inputs).hidden_states[LAYER][0, eos_pos]
-        embedding = F.normalize(h.float(), p=2, dim=0).cpu()
-        debug_print(f"Embedding shape: {embedding.shape}")
+            outputs = model(**inputs)
 
-        # embedding = F.normalize(pooled, p=2, dim=1).squeeze().cpu().numpy().tolist()
+        last_hidden_state = outputs.hidden_states[-1]  # [1, seq_len, hidden_size]
 
-        gen_output = gen_model.generate(
-            inputs.input_ids.to(gen_model.device),
-            max_new_tokens=100,
-            temperature=0.0,
-            do_sample=False
-        )
-        gen_text = tokenizer.decode(gen_output[0], skip_special_tokens=True)
-        debug_print(f"Generated text: {gen_text}")
+        # calculate embedding
+        if USE_CLS:
+            embedding = last_hidden_state[0, 0, :]  # [CLS] embedding
+        else:
+            embedding = last_hidden_state.mean(dim=1)[0]  # mean pooling
+
+        embedding = embedding.cpu()
 
         record = {
             "category": category_name,
             "character_id": f_map_id,
             "movie_title": movie_title,
             "character_name": char_name,
-            "embedding": embedding,
-            "generated_text_sample": gen_text[:200]
+            "embedding": embedding
         }
         emb_fout.write(json.dumps(record) + "\n")
         emb_fout.flush()

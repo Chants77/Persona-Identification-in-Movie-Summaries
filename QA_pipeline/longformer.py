@@ -4,9 +4,10 @@ from transformers import pipeline
 import os
 import time
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from transformers import AutoTokenizer, LongformerForQuestionAnswering
+import torch
 
-
-tvtropes_file = "data/tvtropes.clusters.cleaned.txt"
+tvtropes_file = "../data/tvtropes.clusters.cleaned.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -18,7 +19,7 @@ def debug_print(msg):
             fout.write(msg + "\n")
         print(f"[DEBUG] {msg}")
 def logprint(log):
-    log_file = os.path.join("./logs/roberta-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
+    log_file = os.path.join("../logs/longformer-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
     with open(log_file, "a") as fout:
         fout.write(log + "\n")
     print(log)
@@ -46,7 +47,7 @@ with open(tvtropes_file, 'r', encoding='utf-8') as f:
 all_categories = sorted(all_categories)  # sort for consistency
 logprint(f"Loaded {len(all_categories)} categories")
 
-char_metadata_file = "data/character.metadata.tsv"
+char_metadata_file = "../data/character.metadata.tsv"
 id_to_char_data = {}
 map_id_to_char_data = {}
 
@@ -61,7 +62,7 @@ with open(char_metadata_file, 'r', encoding='utf-8') as f:
         id_to_char_data[freebase_char_id] = (w_movie_id, f_movie_id, character_name)
         map_id_to_char_data[map_id] = (w_movie_id, f_movie_id, character_name)
 
-plot_summaries_file = "data/plot_summaries.txt"
+plot_summaries_file = "../data/plot_summaries.txt"
 # plot_summaries_file = "data/shortened_summaries.txt"
 movie_summaries = {}
 summary_key_version = 0
@@ -77,14 +78,9 @@ with open(plot_summaries_file, 'r', encoding='utf-8') as f:
             movie_summaries[(w_movie_id, c_name.lower())] = short_summary
             summary_key_version = 3
 
-qa_pipeline = pipeline(
-    "question-answering",
-    model="deepset/roberta-base-squad2",
-    tokenizer="deepset/roberta-base-squad2"
-)
-qa_pipeline_tokenizer = qa_pipeline.tokenizer
 
-logprint("Pipeline tokenizer max length:" + str(qa_pipeline_tokenizer.model_max_length))
+tokenizer = AutoTokenizer.from_pretrained("allenai/longformer-large-4096-finetuned-triviaqa")
+model = LongformerForQuestionAnswering.from_pretrained("allenai/longformer-large-4096-finetuned-triviaqa")
 
 categories_context_str = "The possible categories are: " + ", ".join(all_categories) + ". "
 
@@ -119,37 +115,20 @@ for category_name, char_list in category_to_characters.items():
         # print(f"context: {context}")
 
         try:
-            encoded_context = qa_pipeline_tokenizer(
-                context,
-                truncation=False,
-                max_length=qa_pipeline_tokenizer.model_max_length,
-                return_tensors="pt"
-            )
-            debug_print("Number of tokens fed into pipeline:" + str(encoded_context["input_ids"].shape[1]))
+            encoding = tokenizer(question, context, return_tensors="pt")
+            input_ids = encoding["input_ids"]
 
-            if encoded_context["input_ids"].shape[1] > max_context:
-                max_context = encoded_context["input_ids"].shape[1]
-            if encoded_context["input_ids"].shape[1] < min_context:
-                min_context = encoded_context["input_ids"].shape[1]
+            attention_mask = encoding["attention_mask"]
 
-            encoded_categories_context = qa_pipeline_tokenizer(
-                categories_context_str,
-                truncation=False,
-                max_length=qa_pipeline_tokenizer.model_max_length,
-                return_tensors="pt"
-            )
-            debug_print("Number of category tokens:" + str(encoded_categories_context["input_ids"].shape[1]))
+            outputs = model(input_ids, attention_mask=attention_mask)
+            start_logits = outputs.start_logits
+            end_logits = outputs.end_logits
+            all_tokens = tokenizer.convert_ids_to_tokens(input_ids[0].tolist())
 
-            encoded_question = qa_pipeline_tokenizer(
-                question,
-                truncation=False,
-                max_length=qa_pipeline_tokenizer.model_max_length,
-                return_tensors="pt"
-            )
-            debug_print("Number of question tokens:" + str(encoded_question["input_ids"].shape[1]))
-
-            result = qa_pipeline(question=question, context=context)
-            answer = result.get('answer', 'No answer found')
+            answer_tokens = all_tokens[torch.argmax(start_logits): torch.argmax(end_logits) + 1]
+            answer = tokenizer.decode(
+                tokenizer.convert_tokens_to_ids(answer_tokens)
+            )  # remove space prepending space token
 
             logprint(f"Character: {char_name} (from {movie_title})")
             debug_print(f"Q: {question}")

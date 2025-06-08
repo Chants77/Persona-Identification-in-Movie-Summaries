@@ -16,7 +16,7 @@ import seaborn as sns
 import pandas as pd
 
 def test_set_statistics():
-    tvtropes_file = "data/tvtropes.clusters.txt"
+    tvtropes_file = "../data/tvtropes.clusters.cleaned.txt"
     category_to_characters = {}
     all_categories = set()
 
@@ -39,7 +39,7 @@ def test_set_statistics():
 
     all_categories = sorted(all_categories)
 
-    char_metadata_file = "data/character.metadata.tsv"
+    char_metadata_file = "../data/character.metadata.tsv"
     id_to_char_data = {}
     map_id_to_char_data = {}
 
@@ -54,7 +54,7 @@ def test_set_statistics():
             id_to_char_data[freebase_char_id] = (w_movie_id, f_movie_id, character_name)
             map_id_to_char_data[map_id] = (w_movie_id, f_movie_id, character_name)
 
-    plot_summaries_file = "data/plot_summaries.txt"
+    plot_summaries_file = "../data/plot_summaries.txt"
     movie_summaries = {}
 
     with open(plot_summaries_file, 'r', encoding='utf-8') as f:
@@ -86,7 +86,6 @@ def test_set_statistics():
     llama_gen = pipeline(
         "text-generation",
         model="meta-llama/Meta-Llama-3.1-8B-Instruct",
-        model_kwargs={"torch_dtype": torch.bfloat16},
         device_map="auto",
         temperature=0.0,
         do_sample=False,
@@ -141,7 +140,7 @@ def test_set_statistics():
             min_llama = (summary_key, llama_tokens)
 
     df = pd.DataFrame(results)
-    df.to_csv("results/token_counts.csv", index=True)
+    df.to_csv("../results/token_counts.csv", index=True)
     print("\nSaved token counts to token_counts.csv")
 
     print(f"\nRoberta - Longest: {max_roberta[1]} tokens (doc: {max_roberta[0]})")
@@ -174,13 +173,13 @@ def plot_results(df):
 
 
 if __name__ == "__main__":
-    # result_df = test_set_statistics()
-    # plot_results(result_df)
+    result_df = test_set_statistics()
+    plot_results(result_df)
 
     sns.set(style="whitegrid", palette="pastel")
     # plt.rcParams['font.family'] = 'DejaVu Sans'
 
-    df = pd.read_csv("results/token_counts.csv")
+    df = pd.read_csv("../results/token_counts.csv")
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
 

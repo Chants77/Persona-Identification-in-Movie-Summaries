@@ -177,7 +177,7 @@ for i, (category_name, char_info) in tqdm(enumerate(all_character_entries), desc
         context = categories_context_str + few_shot_examples + "\n\n" + summary
         # context = categories_context_str + summary
 
-        question = f"Which category best describes the character {char_name} from the movie {movie_title}? Give me only the category."
+        question = f"Which category best describes the character {char_name} from the movie {movie_title}? Please answer with the single best persona category name."
 
         prompt_template = (
             "Follow the examples below:\n{few_shot_examples}\n\n"

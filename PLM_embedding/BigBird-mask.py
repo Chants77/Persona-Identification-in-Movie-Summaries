@@ -1,5 +1,5 @@
 import torch
-from transformers import BigBirdModel, BigBirdTokenizer
+from transformers import AutoTokenizer, LlamaModel, LlamaForCausalLM, AutoModelForCausalLM, pipeline, LlamaTokenizer, LongformerModel, LongformerTokenizer
 from typing import List
 import csv
 import json
@@ -12,24 +12,27 @@ import argparse
 from tqdm import tqdm
 from collections import defaultdict
 import torch.nn.functional as F
+from transformers import BigBirdModel, BigBirdTokenizer
 
 def debug_print(msg):
     if DEBUG_MODE:
-        log_file = os.path.join("logs/debug-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
+        log_file = os.path.join("../logs/debug-mask-{}-{}.logs".format(MASK_NUM, time.strftime('%Y%m%d', time.gmtime())))
         with open(log_file, "a", encoding="utf-8") as fout:
             fout.write(msg + "\n")
         print(f"[DEBUG] {msg}")
 
 def logprint(log):
-    log_file = os.path.join("logs/bigbird-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
+    log_file = os.path.join("../logs/bigbird-mask-{}-{}.logs".format(MASK_NUM, time.strftime('%Y%m%d', time.gmtime())))
     with open(log_file, "a", encoding="utf-8") as fout:
         fout.write(log + "\n")
     print(log)
 
 
-DEBUG_MODE = True  # debug flag
+DEBUG_MODE = False  # debug flag
 SEED = 42
 QUANTIZATION = False
+LAYER = -1  # penultimate layer
+MASK_NUM = 1  # number of masks
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -45,7 +48,7 @@ if torch.cuda.is_available():
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "../data/tvtropes.clusters.txt"
+tvtropes_file = "../data/tvtropes.clusters.cleaned.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -121,7 +124,7 @@ MAX_LENGTH = 4096
 ATTENTION_TYPE = "block_sparse"
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-debug_print("Loading LongFormer...")
+debug_print("Loading BigBird...")
 
 tokenizer = BigBirdTokenizer.from_pretrained(MODEL_NAME)
 model = BigBirdModel.from_pretrained(
@@ -131,8 +134,9 @@ model = BigBirdModel.from_pretrained(
 )
 model = model.to(DEVICE)
 model.eval()
+MASK = tokenizer.mask_token
 
-embedding_output_file = os.path.join("results/bigbird_embeddings_{}.jsonl".format(time.strftime('%Y%m%d', time.gmtime())))
+embedding_output_file = os.path.join("../results/bigbird_mask_{}_{}.jsonl".format(MASK_NUM, time.strftime('%Y%m%d', time.gmtime())))
 logprint(f"Storing embeddings in {embedding_output_file}")
 
 
@@ -164,33 +168,60 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
         #                 {summary}
         #                 Generate a compact semantic representation of this character's persona. [/INST]"""
 
-        prompt_text = f"""Summarize the character {char_name} from {movie_title}.
-                        Movie summary:
-                        {summary}
-                        """
-
-        # Tokenize
-        inputs = tokenizer(
-            prompt_text,
-            max_length=MAX_LENGTH,
-            padding='max_length',
-            truncation=True,
-            return_tensors='pt'
-        ).to(DEVICE)
-
-        # forward
-        with torch.no_grad():
-            outputs = model(**inputs)
-
-        last_hidden_state = outputs.hidden_states[-1]  # [1, seq_len, hidden_size]
-
-        # calculate embedding
-        if USE_CLS:
-            embedding = last_hidden_state[0, 0, :]  # [CLS] embedding
+        if MASK_NUM == 1:
+            prompt = (f"Analyze {char_name} from {movie_title}."
+                      f"Movie summary: {summary}"
+                      f"In {MASK_NUM} words, describe {char_name}'s role: {MASK}.")
         else:
-            embedding = last_hidden_state.mean(dim=1)[0]  # mean pooling
+            prompt = (f"Analyze {char_name} from {movie_title}."
+                      f"Movie summary: {summary}"
+                      f"In {MASK_NUM} words, describe {char_name}'s role: {MASK * MASK_NUM}.")
 
-        embedding = embedding.cpu().numpy().tolist()
+        enc = tokenizer(prompt, return_tensors="pt",
+                  max_length=4096, truncation=True).to(model.device)
+        mask_pos = (enc.input_ids == tokenizer.mask_token_id).nonzero(as_tuple=True)[1]
+        debug_print(f"mask_pos: {mask_pos}, input_ids: {enc.input_ids}, mask_token_id: {tokenizer.mask_token_id}")
+
+        # Give mask + char name global attention for Longformer
+        glob = torch.zeros_like(enc.input_ids)
+        debug_print(f"Global attention mask shape: {glob.shape}")
+        glob[0, 0] = 1  # CLS
+        glob[0, mask_pos] = 1
+        name_ids = tokenizer.encode(char_name, add_special_tokens=False)
+        for tid in name_ids:
+            glob[enc.input_ids == tid] = 1
+        # glob[0, enc.input_ids == tokenizer.convert_tokens_to_ids(char_name.split()[0])] = 1
+        out = model(**enc)
+        h = out.hidden_states[LAYER][0, mask_pos].mean(0)
+        embedding = F.normalize(h.float(), p=2, dim=0).detach().cpu().numpy().tolist()
+
+        # prompt_text = f"""Summarize the character {char_name} from {movie_title}.
+        #                 Movie summary:
+        #                 {summary}
+        #                 """
+        #
+        # # Tokenize
+        # inputs = tokenizer(
+        #     prompt_text,
+        #     max_length=MAX_LENGTH,
+        #     padding='max_length',
+        #     truncation=True,
+        #     return_tensors='pt'
+        # ).to(DEVICE)
+        #
+        # # forward
+        # with torch.no_grad():
+        #     outputs = model(**inputs)
+        #
+        # last_hidden_state = outputs.hidden_states[-1]  # [1, seq_len, hidden_size]
+        #
+        # # calculate embedding
+        # if USE_CLS:
+        #     embedding = last_hidden_state[0, 0, :]  # [CLS] embedding
+        # else:
+        #     embedding = last_hidden_state.mean(dim=1)[0]  # mean pooling
+        #
+        # embedding = embedding.cpu().numpy().tolist()
 
         record = {
             "category": category_name,

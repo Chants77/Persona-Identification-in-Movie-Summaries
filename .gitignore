@@ -11,3 +11,13 @@ try.py
 __pycache__/*
 *.png
 *.json
+stanford-corenlp-4.5.9/*
+new_corenlp_output/*
+corenlp_embedding/cc.en.300.bin
+corenlp_embedding/cc.en.300.bin.gz
+stanford-corenlp-4.5.9.zip
+ACL-results/*
+data_preprocessing/missing_ids.txt
+images/*
+results/*
+

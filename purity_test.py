@@ -23,7 +23,7 @@ def cluster_purity(gold_clusters, pred_clusters):
 
 
 np.random.seed(42)
-n_samples = 501
+n_samples = 447
 n_true_clusters = 72
 
 true_labels = np.repeat(np.arange(n_true_clusters), n_samples // n_true_clusters)
@@ -65,11 +65,12 @@ embeddings = {q: generate_embeddings(true_labels, q) for q in qualities}
 plt.figure(figsize=(15, 8))
 for i, (q, emb) in enumerate(embeddings.items(), 1):
     plt.subplot(2, 3, i)
-    plt.scatter(emb[:, 0], emb[:, 1], c=true_labels, s=8, alpha=0.5, cmap='tab20')
-    plt.title(f"Quality={q}", fontsize=9)
+    plt.scatter(emb[:, 0], emb[:, 1], c=true_labels, s=8, alpha=0.7, cmap='tab20')
+    plt.title(f"Quality={q}", fontsize=20)
     plt.xticks([])
     plt.yticks([])
 plt.tight_layout()
+plt.savefig('images/purity_trend_embeddings.pdf', format='pdf')
 plt.show()
 
 # n_clusters_list = [20, 40, 60, 80, 100]
@@ -101,4 +102,5 @@ ax2.grid(True, alpha=0.3)
 
 plt.legend(bbox_to_anchor=(1, 0.5), loc='center left')
 plt.tight_layout()
+plt.savefig('images/purity_trend_results.pdf', format='pdf')
 plt.show()

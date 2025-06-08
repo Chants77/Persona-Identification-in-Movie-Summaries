@@ -23,12 +23,13 @@ def process_data(data_path, character_metadata):
     with open(data_path, 'r', encoding='utf-8') as f:
         for line in f:
             parts = line.strip().split('\t')
-            if len(parts) < 6:
-                continue
 
-            agent_line = parts[1]
-            patient_line = parts[2]
-            modifier_line = parts[3]
+            # agent_line = parts[1]
+            # patient_line = parts[2]
+            # modifier_line = parts[3]
+            agent_line = parts[3]
+            patient_line = parts[4]
+            modifier_line = parts[5]
 
             for word in agent_line.split():
                 elements = word.split(':')
@@ -78,8 +79,8 @@ def main(character_meta_path, data_path, output_path):
 
 
 if __name__ == "__main__":
-    character_metadata = "data/character.metadata.tsv"
-    data_file = "../../persona/data/all.data"
-    output_file = "word_bag.json"
+    character_metadata = "../data/character.metadata.tsv"
+    data_file = "../data/new_neural.data"
+    output_file = "../corenlp_embedding/new_neural_corenlp_word_bag.json"
 
     main(character_metadata, data_file, output_file)

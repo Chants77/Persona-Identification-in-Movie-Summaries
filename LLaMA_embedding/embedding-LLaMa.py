@@ -19,7 +19,7 @@ def debug_print(msg):
         print(f"[DEBUG] {msg}")
 
 def logprint(log):
-    log_file = os.path.join("logs/llama-{}.logs".format(time.strftime('%Y%m%d', time.gmtime())))
+    log_file = os.path.join("logs/llama-con-layer{}-{}.logs".format(LAYER, time.strftime('%Y%m%d', time.gmtime())))
     with open(log_file, "a", encoding="utf-8") as fout:
         fout.write(log + "\n")
     print(log)
@@ -27,6 +27,7 @@ def logprint(log):
 
 DEBUG_MODE = True  # debug flag
 SEED = 42
+LAYER = -1
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -42,7 +43,7 @@ if torch.cuda.is_available():
 overall_start_time = time.time()
 logprint("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(overall_start_time)))
 
-tvtropes_file = "../data/tvtropes.clusters.txt"
+tvtropes_file = "../data/tvtropes.clusters.cleaned.txt"
 category_to_characters = {}
 all_categories = set()
 
@@ -220,9 +221,9 @@ with open(embedding_output_file, "w", encoding="utf-8") as emb_fout:
             continue
 
         prompt_text = (
-            f"{pseudo_cls_token} Please focus on the character {char_name} from the movie {movie_title}.\n\n"
-            "Below is the movie summary:\n"
-            f"{summary}\n"
+            f"Analyze {char_name} from {movie_title}."
+            f"Movie summary: {summary}"
+            f"Describe {char_name}'s role: {pseudo_cls_token}"
         )
 
         # Tokenize

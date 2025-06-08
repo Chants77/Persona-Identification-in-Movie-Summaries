@@ -1,9 +1,9 @@
 import json
 from collections import Counter
 
-word_bag_path = "../word_bag.json"
+word_bag_path = "../corenlp_embedding/new_neural_corenlp_word_bag.json"
 tvtropes_file = "../data/tvtropes.clusters.cleaned.txt"
-output_path = "../filtered_word_bag.json"
+output_path = "../corenlp_embedding/new_neural_filtered_word_bag.json"
 missing_ids_output_path = "missing_ids.txt"
 
 with open(word_bag_path, 'r', encoding='utf-8') as f:
@@ -31,6 +31,7 @@ print(duplicates)
 
 filtered_entities = {}
 missing_ids = []
+
 
 for entity_id in target_ids:
     if entity_id in all_entities:

@@ -20,4 +20,4 @@ ACL-results/*
 data_preprocessing/missing_ids.txt
 images/*
 results/*
-
+fastText/*
